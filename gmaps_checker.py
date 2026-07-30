@@ -6,6 +6,7 @@ actual checking rules only exist in one place.
 """
 
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import requests
@@ -18,6 +19,12 @@ DAYS_THRESHOLD = 21
 # How many of the newest reviews to pull per business. 20 is plenty since
 # we sort newest-first and only care about the last DAYS_THRESHOLD days.
 MAX_REVIEWS_PER_BUSINESS = 20
+
+# How many businesses to check at the same time. This only affects how
+# fast a big list finishes - Apify charges the same either way (per actor
+# run started + per review scraped, not by time or concurrency). If you
+# see errors mentioning concurrent runs or rate limits, lower this.
+MAX_CONCURRENT_CHECKS = 10
 
 LOW_STARS = {1, 2}
 
@@ -152,3 +159,21 @@ def check_business(api_token, business_name="", city="", state="", maps_url=""):
             "Matched Place URL": matched_place_url,
         },
     }
+
+
+def check_businesses_parallel(api_token, businesses, max_workers=MAX_CONCURRENT_CHECKS):
+    """Check many businesses at once instead of one at a time.
+
+    businesses: a list of (business_name, city, state, maps_url) tuples.
+    Yields (index, result) as each business finishes - in completion order,
+    not necessarily the order given - so callers can show live progress
+    while work happens in the background. `index` is each business's
+    position in the original `businesses` list, so callers can put results
+    back in the original order afterwards if they want to."""
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_index = {
+            executor.submit(check_business, api_token, name, city, state, maps_url): i
+            for i, (name, city, state, maps_url) in enumerate(businesses)
+        }
+        for future in as_completed(future_to_index):
+            yield future_to_index[future], future.result()

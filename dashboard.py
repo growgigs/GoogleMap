@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from gmaps_checker import DAYS_THRESHOLD, OUTPUT_FIELDS, check_business
+from gmaps_checker import DAYS_THRESHOLD, OUTPUT_FIELDS, check_businesses_parallel
 
 DB_PATH = "history.db"
 
@@ -182,32 +182,37 @@ def main():
         if st.button("Run check", type="primary", disabled=not businesses):
             progress_area = st.empty()
             log_area = st.container()
-            flagged_rows = []
+            results_by_index = {}
             checked_count = 0
+            total = len(businesses)
 
-            for i, (name, city, state, maps_url) in enumerate(businesses):
-                label = name.strip() or maps_url.strip() or f"row {i + 1}"
-                progress_area.write(f"Checking {label}... ({i + 1}/{len(businesses)})")
-                result = check_business(api_token, name, city, state, maps_url)
-
+            for index, result in check_businesses_parallel(api_token, businesses):
+                results_by_index[index] = result
                 if result["status"] == "blank":
                     continue
                 checked_count += 1
+                progress_area.write(f"Checked {checked_count}/{total}...")
 
                 if result["status"] == "flagged":
                     row = result["row"]
-                    flagged_rows.append(row)
                     log_area.write(
                         f"\U0001f6a9 **{row['Business Name']}** - {row['Star Rating']} stars, "
                         f"{row['Review Age']}, by {row['Reviewer Name']}"
                     )
                 elif result["status"] == "error":
-                    log_area.write(f"⚠️ {label}: {result['reason']}")
+                    log_area.write(f"⚠️ {result['label']}: {result['reason']}")
                 elif result["status"] == "skipped":
-                    log_area.write(f"⏭️ {label}: {result['reason']}")
+                    log_area.write(f"⏭️ {result['label']}: {result['reason']}")
                 # "clean" businesses produce no extra log line - the progress line above is enough.
 
             progress_area.write(f"Done checking {checked_count} business(es).")
+
+            # Put flagged results back in the original input order.
+            flagged_rows = [
+                results_by_index[i]["row"]
+                for i in sorted(results_by_index)
+                if results_by_index[i]["status"] == "flagged"
+            ]
 
             conn = get_db()
             save_run(conn, flagged_rows, checked_count)
