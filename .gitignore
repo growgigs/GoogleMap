@@ -6,3 +6,5 @@ venv/
 output/
 businesses.csv
 flagged_businesses.csv
+.streamlit/secrets.toml
+history.db
