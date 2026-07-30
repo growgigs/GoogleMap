@@ -4,3 +4,5 @@ __pycache__/
 .venv/
 venv/
 output/
+businesses.csv
+flagged_businesses.csv
