@@ -1,11 +1,12 @@
 """
-Check a list of businesses for recent 1, 2, or 3-star Google Maps reviews.
+Check a list of businesses for recent 1 or 2-star Google Maps reviews
+that include actual written text (not just a bare star rating).
 
 Reads businesses from a CSV file, pulls each one's newest reviews via
 Apify's Google Maps Reviews Scraper, and writes out a CSV listing only the
-businesses that have a 1, 2, or 3-star review posted within the last
-DAYS_THRESHOLD days. Businesses with no matching review are skipped
-entirely - they will not appear in the output at all.
+businesses that have a 1 or 2-star review, with review text, posted within
+the last DAYS_THRESHOLD days. Businesses with no matching review are
+skipped entirely - they will not appear in the output at all.
 
 Input file (see businesses_example.csv for the template):
   Columns: business_name, city, state, maps_url
@@ -45,7 +46,7 @@ DAYS_THRESHOLD = 21
 # we sort newest-first and only care about the last DAYS_THRESHOLD days.
 MAX_REVIEWS_PER_BUSINESS = 20
 
-LOW_STARS = {1, 2, 3}
+LOW_STARS = {1, 2}
 
 OUTPUT_FIELDS = ["Business Name", "Reviewer Name", "Star Rating", "Review Age", "Matched Place URL"]
 
@@ -98,14 +99,16 @@ def fetch_reviews(start_url):
 
 
 def find_flagged_review(reviews):
-    """Return (review, days_old) for the newest review that is 1-3 stars
-    and within DAYS_THRESHOLD days, or (None, None) if there isn't one.
-    Reviews are already newest-first, so the first match is the one we want."""
+    """Return (review, days_old) for the newest review that has a low star
+    rating (LOW_STARS), includes actual written text, and is within
+    DAYS_THRESHOLD days, or (None, None) if there isn't one. Reviews are
+    already newest-first, so the first match is the one we want."""
     now = datetime.now(timezone.utc)
     for review in reviews:
         stars = review.get("stars")
         published_at_date = review.get("publishedAtDate")
-        if stars not in LOW_STARS or not published_at_date:
+        has_text = bool((review.get("text") or "").strip())
+        if stars not in LOW_STARS or not published_at_date or not has_text:
             continue
         days_old = (now - parse_iso(published_at_date)).days
         if days_old <= DAYS_THRESHOLD:
@@ -165,7 +168,7 @@ def main():
 
             flagged, days_old = find_flagged_review(reviews)
             if not flagged:
-                print(f"  No 1-3 star review in the last {DAYS_THRESHOLD} days. Skipping.")
+                print(f"  No 1-2 star review with text in the last {DAYS_THRESHOLD} days. Skipping.")
                 continue
 
             resolved_name = business_name.strip() or reviews[0].get("title", label)
