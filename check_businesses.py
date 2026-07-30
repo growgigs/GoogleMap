@@ -47,7 +47,7 @@ MAX_REVIEWS_PER_BUSINESS = 20
 
 LOW_STARS = {1, 2, 3}
 
-OUTPUT_FIELDS = ["Business Name", "Reviewer Name", "Star Rating", "Review Age"]
+OUTPUT_FIELDS = ["Business Name", "Reviewer Name", "Star Rating", "Review Age", "Matched Place URL"]
 
 
 def parse_iso(date_str):
@@ -170,13 +170,16 @@ def main():
 
             resolved_name = business_name.strip() or reviews[0].get("title", label)
             age = describe_age(days_old)
+            matched_place_url = reviews[0].get("url") or start_url
             print(f"  FLAGGED: {flagged.get('stars')} stars, {age}, by {flagged.get('name')}")
+            print(f"  Matched place: {matched_place_url}")
 
             flagged_rows.append({
                 "Business Name": resolved_name,
                 "Reviewer Name": flagged.get("name", ""),
                 "Star Rating": flagged.get("stars", ""),
                 "Review Age": age,
+                "Matched Place URL": matched_place_url,
             })
 
     with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
