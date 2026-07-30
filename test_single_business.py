@@ -12,9 +12,11 @@ How to use:
 
      export APIFY_API_TOKEN="your_token_here"
 
-2. Edit BUSINESS_URL below to a real Google Maps place URL (open the
-   business on Google Maps in your browser and copy the URL from the
-   address bar).
+2. Edit BUSINESS_INPUT below to either:
+   - a business name, e.g. "Toyota of Cedar Park", or
+   - a full Google Maps URL (must contain /maps/place, /maps/search,
+     or /maps/reviews - a plain google.com search link or a shortened
+     share.google link won't work).
 
 3. Run it:
 
@@ -24,6 +26,7 @@ How to use:
 import json
 import os
 import sys
+import urllib.parse
 
 import requests
 
@@ -32,8 +35,17 @@ APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN")
 # The Apify actor (their term for a scraper) we're calling.
 ACTOR_ID = "compass~google-maps-reviews-scraper"
 
-# Paste a real Google Maps place URL here before running.
-BUSINESS_URL = "https://share.google/gojniotMBEBHDKhmd"
+# Either a business name or a full Google Maps URL. See the docstring above.
+BUSINESS_INPUT = "Toyota of Cedar Park"
+
+
+def resolve_start_url(business_input):
+    """Turn a plain business name into a Google Maps search URL Apify accepts.
+    If it's already a URL, use it as-is."""
+    if business_input.startswith("http://") or business_input.startswith("https://"):
+        return business_input
+    encoded_name = urllib.parse.quote(business_input)
+    return f"https://www.google.com/maps/search/{encoded_name}"
 
 
 def main():
@@ -42,14 +54,14 @@ def main():
         print('Set it first, e.g.: export APIFY_API_TOKEN="your_token_here"')
         sys.exit(1)
 
-    if BUSINESS_URL == "PASTE_A_GOOGLE_MAPS_URL_HERE":
-        print("ERROR: Edit BUSINESS_URL in this file to a real Google Maps place URL.")
-        sys.exit(1)
+    start_url = resolve_start_url(BUSINESS_INPUT)
+    print(f"Business input: {BUSINESS_INPUT}")
+    print(f"Resolved start URL sent to Apify: {start_url}\n")
 
     # This is the input Apify's Google Maps Reviews Scraper expects.
     # We ask for newest reviews first and cap it at 20 for this test run.
     run_input = {
-        "startUrls": [{"url": BUSINESS_URL}],
+        "startUrls": [{"url": start_url}],
         "maxReviews": 20,
         "reviewsSort": "newest",
         "language": "en",
@@ -70,11 +82,21 @@ def main():
     print(f"\nGot {len(reviews)} review(s) back from Apify.\n")
 
     if not reviews:
-        print("No reviews came back. Double check BUSINESS_URL is a valid Google Maps place page.")
+        print("No reviews came back. Double check BUSINESS_INPUT resolves to a real place.")
         return
 
-    print("Here is the FIRST review, exactly as Apify returned it, so we can")
-    print("see the real field names before we build the filtering logic:\n")
+    business_name = reviews[0].get("title")
+    print(f"Business found on Google Maps: {business_name}\n")
+
+    print("Quick summary of what we got (this is what will become CSV rows later):\n")
+    for r in reviews:
+        print(
+            f"- {r.get('stars')} stars | {r.get('publishedAtDate')} | {r.get('name')}: "
+            f"{(r.get('text') or '')[:80]!r}"
+        )
+
+    print("\nHere is the FIRST review, exactly as Apify returned it, so we can")
+    print("see every real field name before we build the filtering logic:\n")
     print(json.dumps(reviews[0], indent=2))
 
 
