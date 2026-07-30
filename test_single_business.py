@@ -33,7 +33,7 @@ APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN")
 ACTOR_ID = "compass~google-maps-reviews-scraper"
 
 # Paste a real Google Maps place URL here before running.
-BUSINESS_URL = "PASTE_A_GOOGLE_MAPS_URL_HERE"
+BUSINESS_URL = "https://share.google/gojniotMBEBHDKhmd"
 
 
 def main():
