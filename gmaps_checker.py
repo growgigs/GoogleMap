@@ -30,6 +30,41 @@ LOW_STARS = {1, 2}
 
 OUTPUT_FIELDS = ["Business Name", "Reviewer Name", "Star Rating", "Review Age", "Matched Place URL"]
 
+# Recognized alternate spellings for each input column, so a CSV exported
+# from a spreadsheet (different capitalization, wording, or a typo like
+# "Goolge Map URL") is still understood instead of silently matching
+# nothing. Matching is case-insensitive and ignores spaces/punctuation.
+COLUMN_ALIASES = {
+    "business_name": {"businessname", "name", "business"},
+    "city": {"city"},
+    "state": {"state", "stateprovince", "province"},
+    "maps_url": {
+        "mapsurl", "url", "link", "googlemapurl", "googlemapsurl",
+        "goolgemapurl", "mapurl", "gmapsurl", "googlemapslink", "mapslink",
+    },
+}
+
+
+def _normalize_header(header):
+    return "".join(ch for ch in header.strip().lower() if ch.isalnum())
+
+
+def normalize_business_row(row):
+    """Take a CSV DictReader row with possibly differently-named or
+    differently-cased columns (e.g. a spreadsheet export) and pull out
+    (business_name, city, state, maps_url) using COLUMN_ALIASES. Returns
+    empty strings for anything it can't find."""
+    normalized = {_normalize_header(k): v for k, v in row.items() if k}
+    values = {}
+    for field, aliases in COLUMN_ALIASES.items():
+        value = ""
+        for alias in aliases:
+            if normalized.get(alias):
+                value = normalized[alias]
+                break
+        values[field] = value
+    return values["business_name"], values["city"], values["state"], values["maps_url"]
+
 
 def parse_iso(date_str):
     return datetime.fromisoformat(date_str.replace("Z", "+00:00"))

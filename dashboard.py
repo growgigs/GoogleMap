@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from gmaps_checker import DAYS_THRESHOLD, OUTPUT_FIELDS, check_businesses_parallel
+from gmaps_checker import DAYS_THRESHOLD, OUTPUT_FIELDS, check_businesses_parallel, normalize_business_row
 
 DB_PATH = "history.db"
 
@@ -160,7 +160,9 @@ def main():
             placeholder="Toyota of Cedar Park, Cedar Park, TX\nhttps://www.google.com/maps/place/...",
         )
         uploaded = st.file_uploader(
-            "...or upload a CSV (columns: business_name, city, state, maps_url)", type="csv"
+            "...or upload a CSV (columns: business_name, city, state, maps_url - "
+            "common variations like 'Business Name' or 'Google Maps URL' are fine too)",
+            type="csv",
         )
 
         businesses = []
@@ -168,13 +170,12 @@ def main():
             text = uploaded.getvalue().decode("utf-8")
             reader = csv.DictReader(io.StringIO(text))
             for row in reader:
-                businesses.append(
-                    (
-                        row.get("business_name", ""),
-                        row.get("city", ""),
-                        row.get("state", ""),
-                        row.get("maps_url", ""),
-                    )
+                businesses.append(normalize_business_row(row))
+            if not any(any(field.strip() for field in b) for b in businesses):
+                st.warning(
+                    "Couldn't find a business name or Maps URL in any row of this CSV. "
+                    f"Columns found: {', '.join(reader.fieldnames or [])}. "
+                    "Rename your columns to business_name/city/state/maps_url (or something close) and re-upload."
                 )
         elif pasted.strip():
             businesses = parse_pasted_lines(pasted)

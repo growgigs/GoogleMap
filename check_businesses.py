@@ -33,7 +33,7 @@ import csv
 import os
 import sys
 
-from gmaps_checker import OUTPUT_FIELDS, check_businesses_parallel
+from gmaps_checker import OUTPUT_FIELDS, check_businesses_parallel, normalize_business_row
 
 APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN")
 
@@ -55,14 +55,7 @@ def main():
     with open(INPUT_CSV, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            businesses.append(
-                (
-                    row.get("business_name", "") or "",
-                    row.get("city", "") or "",
-                    row.get("state", "") or "",
-                    row.get("maps_url", "") or "",
-                )
-            )
+            businesses.append(normalize_business_row(row))
 
     print(f"Checking {len(businesses)} business(es)...\n")
 
