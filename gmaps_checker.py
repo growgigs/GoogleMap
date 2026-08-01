@@ -41,6 +41,7 @@ COLUMN_ALIASES = {
     "maps_url": {
         "mapsurl", "url", "link", "googlemapurl", "googlemapsurl",
         "goolgemapurl", "mapurl", "gmapsurl", "googlemapslink", "mapslink",
+        "googlemap", "googlemaps", "gmaps", "maps",
     },
 }
 
