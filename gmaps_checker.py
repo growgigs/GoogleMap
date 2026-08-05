@@ -11,14 +11,22 @@ from datetime import datetime, timezone
 
 import requests
 
-ACTOR_ID = "compass~google-maps-reviews-scraper"
+REVIEWS_ACTOR_ID = "compass~google-maps-reviews-scraper"
+PLACES_ACTOR_ID = "compass~crawler-google-places"
 
-# Easy to change: only flag reviews posted within this many days.
+# Easy to change: only flag reviews posted within this many days. This is
+# also sent to Apify as reviewsStartDate, so it stops pulling a business's
+# reviews as soon as it reaches one older than this - not just a client-side
+# filter, an actual cost saver.
 DAYS_THRESHOLD = 21
 
-# How many of the newest reviews to pull per business. 20 is plenty since
-# we sort newest-first and only care about the last DAYS_THRESHOLD days.
-MAX_REVIEWS_PER_BUSINESS = 20
+# Hard per-business cap on reviews pulled, regardless of reviewsStartDate.
+# This exists purely for cost safety: a very popular/viral business could
+# otherwise rack up hundreds of reviews within DAYS_THRESHOLD days. 40 is
+# chosen so that even in the worst case (every business hits this cap),
+# the combined search+review cost stays under HARD_COST_CAP_PER_1000 - see
+# estimate_search_cost() below.
+MAX_REVIEWS_PER_BUSINESS = 40
 
 # How many businesses to check at the same time. This only affects how
 # fast a big list finishes - Apify charges the same either way (per actor
@@ -96,12 +104,13 @@ def resolve_start_url(business_name, city, state, maps_url):
     return f"https://www.google.com/maps/search/{urllib.parse.quote(query)}"
 
 
-def fetch_reviews(api_token, start_url):
-    endpoint = f"https://api.apify.com/v2/acts/{ACTOR_ID}/run-sync-get-dataset-items"
+def fetch_reviews(api_token, start_url, days_threshold=DAYS_THRESHOLD):
+    endpoint = f"https://api.apify.com/v2/acts/{REVIEWS_ACTOR_ID}/run-sync-get-dataset-items"
     run_input = {
         "startUrls": [{"url": start_url}],
         "maxReviews": MAX_REVIEWS_PER_BUSINESS,
         "reviewsSort": "newest",
+        "reviewsStartDate": f"{days_threshold} days",
         "language": "en",
     }
     response = requests.post(
@@ -114,11 +123,13 @@ def fetch_reviews(api_token, start_url):
     return response.json()
 
 
-def find_flagged_review(reviews):
+def find_flagged_review(reviews, days_threshold=DAYS_THRESHOLD):
     """Return (review, days_old) for the newest review that has a low star
     rating (LOW_STARS), includes actual written text, and is within
-    DAYS_THRESHOLD days, or (None, None) if there isn't one. Reviews are
-    already newest-first, so the first match is the one we want."""
+    days_threshold days, or (None, None) if there isn't one. Reviews are
+    already newest-first, so the first match is the one we want. This is a
+    client-side backstop - reviewsStartDate in fetch_reviews already does
+    the heavy lifting of not pulling older reviews in the first place."""
     now = datetime.now(timezone.utc)
     for review in reviews:
         stars = review.get("stars")
@@ -127,7 +138,7 @@ def find_flagged_review(reviews):
         if stars not in LOW_STARS or not published_at_date or not has_text:
             continue
         days_old = (now - parse_iso(published_at_date)).days
-        if days_old <= DAYS_THRESHOLD:
+        if days_old <= days_threshold:
             return review, days_old
     return None, None
 
@@ -142,7 +153,7 @@ def describe_error(exc):
     return str(exc)
 
 
-def check_business(api_token, business_name="", city="", state="", maps_url=""):
+def check_business(api_token, business_name="", city="", state="", maps_url="", days_threshold=DAYS_THRESHOLD):
     """Run the full check for one business. Always returns a dict with a
     "status" key, one of:
       "blank"   - nothing was given for this business, nothing to do
@@ -165,19 +176,19 @@ def check_business(api_token, business_name="", city="", state="", maps_url=""):
         }
 
     try:
-        reviews = fetch_reviews(api_token, start_url)
+        reviews = fetch_reviews(api_token, start_url, days_threshold)
     except requests.exceptions.RequestException as e:
         return {"status": "error", "label": label, "reason": describe_error(e)}
 
     if not reviews:
         return {"status": "clean", "label": label, "reason": "No reviews found at all."}
 
-    flagged, days_old = find_flagged_review(reviews)
+    flagged, days_old = find_flagged_review(reviews, days_threshold)
     if not flagged:
         return {
             "status": "clean",
             "label": label,
-            "reason": f"No 1-2 star review with text in the last {DAYS_THRESHOLD} days.",
+            "reason": f"No 1-2 star review with text in the last {days_threshold} days.",
         }
 
     resolved_name = (business_name or "").strip() or reviews[0].get("title", label)
@@ -197,7 +208,7 @@ def check_business(api_token, business_name="", city="", state="", maps_url=""):
     }
 
 
-def check_businesses_parallel(api_token, businesses, max_workers=MAX_CONCURRENT_CHECKS):
+def check_businesses_parallel(api_token, businesses, max_workers=MAX_CONCURRENT_CHECKS, days_threshold=DAYS_THRESHOLD):
     """Check many businesses at once instead of one at a time.
 
     businesses: a list of (business_name, city, state, maps_url) tuples.
@@ -208,8 +219,96 @@ def check_businesses_parallel(api_token, businesses, max_workers=MAX_CONCURRENT_
     back in the original order afterwards if they want to."""
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_index = {
-            executor.submit(check_business, api_token, name, city, state, maps_url): i
+            executor.submit(check_business, api_token, name, city, state, maps_url, days_threshold): i
             for i, (name, city, state, maps_url) in enumerate(businesses)
         }
         for future in as_completed(future_to_index):
             yield future_to_index[future], future.result()
+
+
+def search_places(api_token, keyword, location, max_places):
+    """Find businesses matching a category/keyword in a location, using
+    Apify's Google Maps Places Scraper. Returns a list of (business_name,
+    city, state, maps_url) tuples, ready to feed straight into
+    check_businesses_parallel - maps_url is already the exact matched place,
+    so no further name-matching/lookup is needed downstream."""
+    endpoint = f"https://api.apify.com/v2/acts/{PLACES_ACTOR_ID}/run-sync-get-dataset-items"
+    run_input = {
+        "searchStringsArray": [keyword],
+        "locationQuery": location,
+        "maxCrawledPlacesPerSearch": max_places,
+        "language": "en",
+    }
+    response = requests.post(
+        endpoint,
+        params={"token": api_token},
+        json=run_input,
+        timeout=600,
+    )
+    response.raise_for_status()
+    places = response.json()
+    return [
+        (place.get("title", ""), place.get("city", "") or "", place.get("state", "") or "", place.get("url", ""))
+        for place in places
+        if place.get("url")
+    ]
+
+
+# --- Cost estimation, verified against both actors' live Apify pricing ---
+#
+# compass/crawler-google-places: $0.007 flat per run + $0.004 per place scraped
+# compass/google-maps-reviews-scraper: $0.00005 flat per run (one run per
+# business) + $0.0006 per review scraped
+PLACES_ACTOR_START_PRICE = 0.007
+PLACE_SCRAPED_PRICE = 0.004
+REVIEWS_ACTOR_START_PRICE = 0.00005
+REVIEW_SCRAPED_PRICE = 0.0006
+
+# Real-world sampling (several Miami restaurants, Aug 2026) found anywhere
+# from ~3 to ~170 new reviews posted per business in a 21-day window,
+# depending on how popular the place is. This number is only used for the
+# *typical* estimate shown to the user - MAX_REVIEWS_PER_BUSINESS above is
+# what actually protects the budget in the worst case.
+TYPICAL_REVIEWS_PER_BUSINESS_ESTIMATE = 15
+
+# The user's hard requirement: never let a run's guaranteed worst-case cost
+# exceed this many dollars per 1,000 businesses searched.
+HARD_COST_CAP_PER_1000 = 30.0
+
+
+def estimate_search_cost(num_businesses):
+    """Return (typical_total_usd, worst_case_total_usd) for a category/
+    location search of num_businesses places, each followed by a reviews
+    check. "Worst case" assumes every business hits MAX_REVIEWS_PER_BUSINESS
+    - that's the only number we can actually guarantee, so it's what
+    check_cost_cap() checks against HARD_COST_CAP_PER_1000."""
+    search_total = PLACES_ACTOR_START_PRICE + PLACE_SCRAPED_PRICE * num_businesses
+    typical_reviews_total = num_businesses * (
+        REVIEWS_ACTOR_START_PRICE
+        + REVIEW_SCRAPED_PRICE * min(TYPICAL_REVIEWS_PER_BUSINESS_ESTIMATE, MAX_REVIEWS_PER_BUSINESS)
+    )
+    worst_case_reviews_total = num_businesses * (REVIEWS_ACTOR_START_PRICE + REVIEW_SCRAPED_PRICE * MAX_REVIEWS_PER_BUSINESS)
+    return search_total + typical_reviews_total, search_total + worst_case_reviews_total
+
+
+def cost_per_1000(total_usd, num_businesses):
+    if num_businesses <= 0:
+        return 0.0
+    return total_usd / num_businesses * 1000
+
+
+def check_cost_cap(num_businesses):
+    """Estimate cost for searching num_businesses places and decide whether
+    it's allowed to run. Returns a dict with the typical and worst-case
+    totals/per-1000 rates, and "allowed" (bool) - checked against the
+    worst case, not the typical estimate, so an unlucky batch of popular
+    businesses can't blow past HARD_COST_CAP_PER_1000."""
+    typical_total, worst_case_total = estimate_search_cost(num_businesses)
+    return {
+        "num_businesses": num_businesses,
+        "typical_total": typical_total,
+        "worst_case_total": worst_case_total,
+        "typical_per_1000": cost_per_1000(typical_total, num_businesses),
+        "worst_case_per_1000": cost_per_1000(worst_case_total, num_businesses),
+        "allowed": cost_per_1000(worst_case_total, num_businesses) <= HARD_COST_CAP_PER_1000,
+    }
