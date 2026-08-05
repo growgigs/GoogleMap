@@ -1,12 +1,25 @@
 """
 Google Maps review-check dashboard.
 
-A password-protected web dashboard (built with Streamlit) that lets you
-paste or upload a list of businesses, checks each one's recent Google Maps
-reviews via Apify, and shows/lets you download only the businesses with a
-1-2 star review (with text) posted in the last DAYS_THRESHOLD days (see
-gmaps_checker.py). It also keeps a history of past runs in a local SQLite
-file (history.db) so you can look back without re-running everything.
+A password-protected web dashboard (built with Streamlit) with two ways to
+find businesses to check:
+
+  - Search specific business list: paste or upload businesses you already
+    know (name+city+state, or a direct Maps URL).
+  - Search by category + location: give it a keyword (e.g. "Italian
+    restaurant") and a place (e.g. "Miami, FL") and it finds matching
+    businesses itself via Apify's Google Maps Places Scraper.
+
+Either way, each business's recent reviews are checked via Apify's Google
+Maps Reviews Scraper, and only businesses with a 1-2 star review (with
+written text) posted within the recency window are shown/downloadable (see
+gmaps_checker.py for the actual rules). A history of past runs is kept in
+a local SQLite file (history.db).
+
+Category searches show a cost estimate (typical and guaranteed worst-case,
+based on Apify's real per-event pricing) before you can run them, and are
+hard-blocked from running if the worst-case cost would exceed
+gmaps_checker.HARD_COST_CAP_PER_1000 per 1,000 businesses.
 
 One-time setup, in Streamlit Community Cloud's app settings -> Secrets:
   APIFY_API_TOKEN = "your_apify_token"
@@ -24,9 +37,19 @@ import io
 import sqlite3
 from datetime import datetime, timezone
 
+import requests
 import streamlit as st
 
-from gmaps_checker import DAYS_THRESHOLD, OUTPUT_FIELDS, check_businesses_parallel, normalize_business_row
+from gmaps_checker import (
+    DAYS_THRESHOLD,
+    HARD_COST_CAP_PER_1000,
+    OUTPUT_FIELDS,
+    check_businesses_parallel,
+    check_cost_cap,
+    describe_error,
+    normalize_business_row,
+    search_places,
+)
 
 DB_PATH = "history.db"
 
@@ -132,6 +155,51 @@ def check_password():
     return False
 
 
+def run_checks(api_token, businesses, days_threshold):
+    """Check every business in `businesses`, showing live progress, then
+    save the results to history and store them in session_state for
+    display below."""
+    progress_area = st.empty()
+    log_area = st.container()
+    results_by_index = {}
+    checked_count = 0
+    total = len(businesses)
+
+    for index, result in check_businesses_parallel(api_token, businesses, days_threshold=days_threshold):
+        results_by_index[index] = result
+        if result["status"] == "blank":
+            continue
+        checked_count += 1
+        progress_area.write(f"Checked {checked_count}/{total}...")
+
+        if result["status"] == "flagged":
+            row = result["row"]
+            log_area.write(
+                f"\U0001f6a9 **{row['Business Name']}** - {row['Star Rating']} stars, "
+                f"{row['Review Age']}, by {row['Reviewer Name']}"
+            )
+        elif result["status"] == "error":
+            log_area.write(f"⚠️ {result['label']}: {result['reason']}")
+        elif result["status"] == "skipped":
+            log_area.write(f"⏭️ {result['label']}: {result['reason']}")
+        # "clean" businesses produce no extra log line - the progress line above is enough.
+
+    progress_area.write(f"Done checking {checked_count} business(es).")
+
+    # Put flagged results back in the original input order.
+    flagged_rows = [
+        results_by_index[i]["row"]
+        for i in sorted(results_by_index)
+        if results_by_index[i]["status"] == "flagged"
+    ]
+
+    conn = get_db()
+    save_run(conn, flagged_rows, checked_count)
+    conn.close()
+
+    st.session_state["last_run_rows"] = flagged_rows
+
+
 def main():
     if not check_password():
         return
@@ -143,83 +211,104 @@ def main():
 
     st.title("Google Maps Review Checker")
     st.caption(
-        f"Flags businesses with a 1-2 star review (with written text) posted in the last {DAYS_THRESHOLD} days."
+        "Flags businesses with a 1-2 star review (with written text) posted within your "
+        f"chosen recency window (default {DAYS_THRESHOLD} days)."
     )
 
     tab_check, tab_history = st.tabs(["Check businesses", "History"])
 
     with tab_check:
-        st.subheader("1. Give it your businesses")
-        st.markdown(
-            "One per line: either a full Google Maps URL, or `Business Name, City, State` "
-            "(name alone risks matching the wrong branch of a chain)."
-        )
-        pasted = st.text_area(
-            "Paste businesses here",
-            height=150,
-            placeholder="Toyota of Cedar Park, Cedar Park, TX\nhttps://www.google.com/maps/place/...",
-        )
-        uploaded = st.file_uploader(
-            "...or upload a CSV (columns: business_name, city, state, maps_url - "
-            "common variations like 'Business Name' or 'Google Maps URL' are fine too)",
-            type="csv",
+        mode = st.radio(
+            "Search mode",
+            ["Search specific business list", "Search by category + location"],
+            horizontal=True,
         )
 
         businesses = []
-        if uploaded is not None:
-            text = uploaded.getvalue().decode("utf-8")
-            reader = csv.DictReader(io.StringIO(text))
-            for row in reader:
-                businesses.append(normalize_business_row(row))
-            if not any(any(field.strip() for field in b) for b in businesses):
-                st.warning(
-                    "Couldn't find a business name or Maps URL in any row of this CSV. "
-                    f"Columns found: {', '.join(reader.fieldnames or [])}. "
-                    "Rename your columns to business_name/city/state/maps_url (or something close) and re-upload."
-                )
-        elif pasted.strip():
-            businesses = parse_pasted_lines(pasted)
+        days_threshold = DAYS_THRESHOLD
+        keyword = location = ""
+        max_places = 0
+        cost_info = None
+        run_label = "Run check"
 
-        if st.button("Run check", type="primary", disabled=not businesses):
-            progress_area = st.empty()
-            log_area = st.container()
-            results_by_index = {}
-            checked_count = 0
-            total = len(businesses)
+        if mode == "Search specific business list":
+            st.subheader("1. Give it your businesses")
+            st.markdown(
+                "One per line: either a full Google Maps URL, or `Business Name, City, State` "
+                "(name alone risks matching the wrong branch of a chain)."
+            )
+            pasted = st.text_area(
+                "Paste businesses here",
+                height=150,
+                placeholder="Toyota of Cedar Park, Cedar Park, TX\nhttps://www.google.com/maps/place/...",
+            )
+            uploaded = st.file_uploader(
+                "...or upload a CSV (columns: business_name, city, state, maps_url - "
+                "common variations like 'Business Name' or 'Google Maps URL' are fine too)",
+                type="csv",
+            )
 
-            for index, result in check_businesses_parallel(api_token, businesses):
-                results_by_index[index] = result
-                if result["status"] == "blank":
-                    continue
-                checked_count += 1
-                progress_area.write(f"Checked {checked_count}/{total}...")
-
-                if result["status"] == "flagged":
-                    row = result["row"]
-                    log_area.write(
-                        f"\U0001f6a9 **{row['Business Name']}** - {row['Star Rating']} stars, "
-                        f"{row['Review Age']}, by {row['Reviewer Name']}"
+            if uploaded is not None:
+                text = uploaded.getvalue().decode("utf-8")
+                reader = csv.DictReader(io.StringIO(text))
+                for row in reader:
+                    businesses.append(normalize_business_row(row))
+                if not any(any(field.strip() for field in b) for b in businesses):
+                    st.warning(
+                        "Couldn't find a business name or Maps URL in any row of this CSV. "
+                        f"Columns found: {', '.join(reader.fieldnames or [])}. "
+                        "Rename your columns to business_name/city/state/maps_url (or something close) and re-upload."
                     )
-                elif result["status"] == "error":
-                    log_area.write(f"⚠️ {result['label']}: {result['reason']}")
-                elif result["status"] == "skipped":
-                    log_area.write(f"⏭️ {result['label']}: {result['reason']}")
-                # "clean" businesses produce no extra log line - the progress line above is enough.
+            elif pasted.strip():
+                businesses = parse_pasted_lines(pasted)
 
-            progress_area.write(f"Done checking {checked_count} business(es).")
+            ready_to_run = bool(businesses)
 
-            # Put flagged results back in the original input order.
-            flagged_rows = [
-                results_by_index[i]["row"]
-                for i in sorted(results_by_index)
-                if results_by_index[i]["status"] == "flagged"
-            ]
+        else:
+            st.subheader("1. Search by category + location")
+            col1, col2 = st.columns(2)
+            with col1:
+                keyword = st.text_input("Search keyword", placeholder="Italian restaurant")
+            with col2:
+                location = st.text_input("Location", placeholder="Miami, FL")
+            max_places = st.number_input(
+                "Max businesses to search", min_value=1, max_value=5000, value=20, step=1
+            )
+            days_threshold = st.number_input(
+                "Review recency window (days)", min_value=1, max_value=365, value=DAYS_THRESHOLD, step=1
+            )
 
-            conn = get_db()
-            save_run(conn, flagged_rows, checked_count)
-            conn.close()
+            cost_info = check_cost_cap(int(max_places))
+            st.caption(
+                f"Estimated businesses: ~{int(max_places)}  ·  "
+                f"Estimated cost: \\${cost_info['typical_total']:.2f} typical "
+                f"(\\${cost_info['typical_per_1000']:.2f} per 1,000)  ·  "
+                f"up to \\${cost_info['worst_case_total']:.2f} worst case "
+                f"(\\${cost_info['worst_case_per_1000']:.2f} per 1,000)"
+            )
+            if not cost_info["allowed"]:
+                st.error(
+                    f"Blocked: worst-case cost (\\${cost_info['worst_case_per_1000']:.2f} per 1,000) would "
+                    f"exceed the \\${HARD_COST_CAP_PER_1000:.0f}/1,000 safety cap. Lower the business count to continue."
+                )
 
-            st.session_state["last_run_rows"] = flagged_rows
+            run_label = "Search & check"
+            ready_to_run = bool(keyword.strip() and location.strip()) and cost_info["allowed"]
+
+        if st.button(run_label, type="primary", disabled=not ready_to_run):
+            if mode == "Search by category + location":
+                with st.spinner(f"Searching for '{keyword}' in {location}..."):
+                    try:
+                        businesses = search_places(api_token, keyword.strip(), location.strip(), int(max_places))
+                    except requests.exceptions.RequestException as e:
+                        st.error(f"Search failed: {describe_error(e)}")
+                        businesses = []
+                st.write(f"Found {len(businesses)} business(es).")
+
+            if businesses:
+                run_checks(api_token, businesses, int(days_threshold))
+            elif mode == "Search by category + location":
+                st.warning("No businesses found for that search - try a different keyword or location.")
 
         if st.session_state.get("last_run_rows") is not None:
             rows = st.session_state["last_run_rows"]
