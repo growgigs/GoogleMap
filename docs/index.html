@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get warm leads from businesses with a fresh bad review</title>
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --muted: #5b5b5b;
+    --accent: #c0392b;
+    --bg: #faf9f7;
+    --card: #ffffff;
+    --border: #e6e2db;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 64px 20px 80px;
+  }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  h1 {
+    font-size: 2.1rem;
+    line-height: 1.25;
+    margin: 0 0 16px;
+  }
+  .sub {
+    font-size: 1.05rem;
+    color: var(--muted);
+    margin: 0 0 32px;
+    max-width: 60ch;
+  }
+  .bullets {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 40px;
+    display: grid;
+    gap: 14px;
+  }
+  .bullets li {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    font-size: 0.98rem;
+  }
+  .bullets li::before {
+    content: "→";
+    color: var(--accent);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+  }
+  .card h2 {
+    font-size: 1.2rem;
+    margin: 0 0 6px;
+  }
+  .card p.hint {
+    color: var(--muted);
+    font-size: 0.92rem;
+    margin: 0 0 20px;
+  }
+  form { display: grid; gap: 14px; }
+  label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--ink);
+    display: block;
+    margin-bottom: 4px;
+  }
+  input, select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.95rem;
+    background: #fff;
+    color: var(--ink);
+  }
+  input:focus, select:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  button {
+    margin-top: 6px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 13px 18px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: #a5311f; }
+  .fineprint {
+    margin-top: 14px;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .success {
+    display: none;
+    text-align: center;
+    padding: 20px;
+  }
+  .success.shown { display: block; }
+  .success h2 { margin-bottom: 6px; }
+  footer {
+    margin-top: 56px;
+    font-size: 0.82rem;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f0eee9;
+      --muted: #a8a49c;
+      --accent: #e07a5f;
+      --bg: #17161a;
+      --card: #221f24;
+      --border: #37333a;
+    }
+    input, select { background: #1b191d; color: var(--ink); }
+    button { color: #17161a; }
+    button:hover { background: #c96248; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="eyebrow">Early access</div>
+    <h1>Find businesses that just got a bad review — before your competitor does.</h1>
+    <p class="sub">
+      A tool for reputation-management, local SEO, and review-removal agencies: it scans
+      Google Maps for businesses with a recent 1–2 star review (posted in the last few weeks),
+      so your outreach starts with a real, specific, personal reason to reach out —
+      not a cold list.
+    </p>
+
+    <ul class="bullets">
+      <li>Search by category + location (e.g. "commercial cleaning, Austin TX") and get back only businesses with a genuinely fresh bad review.</li>
+      <li>Every result includes the reviewer's name and what they actually said — the detail that makes an opening line land.</li>
+      <li>Built for outreach, not raw data dumps — no separate steps for businesses, then reviewers, then comments.</li>
+    </ul>
+
+    <div class="card">
+      <div id="form-panel">
+        <h2>Get a free sample list</h2>
+        <p class="hint">
+          Tell us your niche and a location, and we'll personally send you a free list of
+          real businesses with a recent bad review — no cost, no obligation.
+        </p>
+        <!--
+          SETUP NOTE (remove this comment once configured):
+          1. Go to https://formspree.io and create a free account (no credit card, 50 submissions/month free).
+          2. Create a new form and copy its endpoint, e.g. https://formspree.io/f/abcdwxyz
+          3. Replace YOUR_FORM_ID below with just the ID part (the "abcdwxyz" bit).
+        -->
+        <form id="lead-form" action="https://formspree.io/f/YOUR_FORM_ID" method="POST">
+          <div>
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" required>
+          </div>
+          <div>
+            <label for="email">Work email</label>
+            <input type="email" id="email" name="email" required>
+          </div>
+          <div>
+            <label for="niche">What kind of agency are you?</label>
+            <input type="text" id="niche" name="agency_type" placeholder="e.g. reputation management, local SEO, GoHighLevel reseller" required>
+          </div>
+          <div>
+            <label for="target">What niche + city should your sample list cover?</label>
+            <input type="text" id="target" name="target_niche_and_city" placeholder="e.g. commercial cleaning, Austin TX" required>
+          </div>
+          <button type="submit">Send me the free list</button>
+          <p class="fineprint">We'll email your sample list within 48 hours. No spam, no auto-signup to anything.</p>
+        </form>
+      </div>
+      <div id="success" class="success">
+        <h2>Got it — thank you!</h2>
+        <p>We'll put your sample list together and email it to you within 48 hours.</p>
+      </div>
+    </div>
+
+    <footer>
+      &copy; <span id="year"></span> &mdash; early access, built for agencies who'd rather lead with a real reason than a cold list.
+    </footer>
+  </div>
+
+<script>
+  document.getElementById("year").textContent = new Date().getFullYear();
+
+  const form = document.getElementById("lead-form");
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const data = new FormData(form);
+    try {
+      const response = await fetch(form.action, {
+        method: "POST",
+        body: data,
+        headers: { "Accept": "application/json" },
+      });
+      if (response.ok) {
+        document.getElementById("form-panel").style.display = "none";
+        document.getElementById("success").classList.add("shown");
+      } else {
+        alert("Something went wrong submitting the form. Please try again or email us directly.");
+      }
+    } catch (err) {
+      alert("Something went wrong submitting the form. Please try again or email us directly.");
+    }
+  });
+</script>
+</body>
+</html>
