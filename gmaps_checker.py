@@ -36,7 +36,7 @@ MAX_CONCURRENT_CHECKS = 10
 
 LOW_STARS = {1, 2}
 
-OUTPUT_FIELDS = ["Business Name", "Reviewer Name", "Star Rating", "Review Age", "Matched Place URL"]
+OUTPUT_FIELDS = ["Business Name", "Website", "Reviewer Name", "Star Rating", "Review Age", "Matched Place URL"]
 
 # Recognized alternate spellings for each input column, so a CSV exported
 # from a spreadsheet (different capitalization, wording, or a typo like
@@ -153,7 +153,7 @@ def describe_error(exc):
     return str(exc)
 
 
-def check_business(api_token, business_name="", city="", state="", maps_url="", days_threshold=DAYS_THRESHOLD):
+def check_business(api_token, business_name="", city="", state="", maps_url="", days_threshold=DAYS_THRESHOLD, website=""):
     """Run the full check for one business. Always returns a dict with a
     "status" key, one of:
       "blank"   - nothing was given for this business, nothing to do
@@ -200,6 +200,7 @@ def check_business(api_token, business_name="", city="", state="", maps_url="", 
         "label": label,
         "row": {
             "Business Name": resolved_name,
+            "Website": website,
             "Reviewer Name": flagged.get("name", ""),
             "Star Rating": flagged.get("stars", ""),
             "Review Age": age,
@@ -211,17 +212,21 @@ def check_business(api_token, business_name="", city="", state="", maps_url="", 
 def check_businesses_parallel(api_token, businesses, max_workers=MAX_CONCURRENT_CHECKS, days_threshold=DAYS_THRESHOLD):
     """Check many businesses at once instead of one at a time.
 
-    businesses: a list of (business_name, city, state, maps_url) tuples.
+    businesses: a list of (business_name, city, state, maps_url) tuples, or
+    (business_name, city, state, maps_url, website) tuples if you already
+    have the website (e.g. from search_places - free, no extra lookup).
     Yields (index, result) as each business finishes - in completion order,
     not necessarily the order given - so callers can show live progress
     while work happens in the background. `index` is each business's
     position in the original `businesses` list, so callers can put results
     back in the original order afterwards if they want to."""
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_index = {
-            executor.submit(check_business, api_token, name, city, state, maps_url, days_threshold): i
-            for i, (name, city, state, maps_url) in enumerate(businesses)
-        }
+        future_to_index = {}
+        for i, business in enumerate(businesses):
+            name, city, state, maps_url = business[:4]
+            website = business[4] if len(business) > 4 else ""
+            future = executor.submit(check_business, api_token, name, city, state, maps_url, days_threshold, website)
+            future_to_index[future] = i
         for future in as_completed(future_to_index):
             yield future_to_index[future], future.result()
 
@@ -229,9 +234,10 @@ def check_businesses_parallel(api_token, businesses, max_workers=MAX_CONCURRENT_
 def search_places(api_token, keyword, location, max_places):
     """Find businesses matching a category/keyword in a location, using
     Apify's Google Maps Places Scraper. Returns a list of (business_name,
-    city, state, maps_url) tuples, ready to feed straight into
+    city, state, maps_url, website) tuples, ready to feed straight into
     check_businesses_parallel - maps_url is already the exact matched place,
-    so no further name-matching/lookup is needed downstream."""
+    so no further name-matching/lookup is needed downstream. website comes
+    free from this same call - no extra Apify cost."""
     endpoint = f"https://api.apify.com/v2/acts/{PLACES_ACTOR_ID}/run-sync-get-dataset-items"
     run_input = {
         "searchStringsArray": [keyword],
@@ -248,7 +254,13 @@ def search_places(api_token, keyword, location, max_places):
     response.raise_for_status()
     places = response.json()
     return [
-        (place.get("title", ""), place.get("city", "") or "", place.get("state", "") or "", place.get("url", ""))
+        (
+            place.get("title", ""),
+            place.get("city", "") or "",
+            place.get("state", "") or "",
+            place.get("url", ""),
+            place.get("website", "") or "",
+        )
         for place in places
         if place.get("url")
     ]

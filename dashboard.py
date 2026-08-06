@@ -82,6 +82,10 @@ def get_db():
         )
         """
     )
+    try:
+        conn.execute("ALTER TABLE flagged_reviews ADD COLUMN website TEXT")
+    except sqlite3.OperationalError:
+        pass  # already has the column - a history.db from before Website existed
     return conn
 
 
@@ -95,11 +99,12 @@ def save_run(conn, flagged_rows, businesses_checked):
     for row in flagged_rows:
         conn.execute(
             "INSERT INTO flagged_reviews "
-            "(run_id, business_name, reviewer_name, star_rating, review_age, matched_place_url) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "(run_id, business_name, website, reviewer_name, star_rating, review_age, matched_place_url) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 run_id,
                 row["Business Name"],
+                row.get("Website", ""),
                 row["Reviewer Name"],
                 row["Star Rating"],
                 row["Review Age"],
@@ -342,7 +347,7 @@ def main():
             for run_id, run_at, checked, flagged_count in past_runs:
                 with st.expander(f"{run_at} — {checked} checked, {flagged_count} flagged"):
                     db_rows = conn.execute(
-                        "SELECT business_name, reviewer_name, star_rating, review_age, matched_place_url "
+                        "SELECT business_name, website, reviewer_name, star_rating, review_age, matched_place_url "
                         "FROM flagged_reviews WHERE run_id = ?",
                         (run_id,),
                     ).fetchall()
@@ -350,10 +355,11 @@ def main():
                         table = [
                             {
                                 "Business Name": r[0],
-                                "Reviewer Name": r[1],
-                                "Star Rating": r[2],
-                                "Review Age": r[3],
-                                "Matched Place URL": r[4],
+                                "Website": r[1] or "",
+                                "Reviewer Name": r[2],
+                                "Star Rating": r[3],
+                                "Review Age": r[4],
+                                "Matched Place URL": r[5],
                             }
                             for r in db_rows
                         ]
