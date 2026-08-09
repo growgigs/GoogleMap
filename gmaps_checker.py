@@ -360,6 +360,99 @@ def search_places(api_token, keyword, location, max_places):
     ]
 
 
+MULTI_LOCATION_OUTPUT_FIELDS = [
+    "Business Name", "Total Locations", "Category", "City", "State",
+    "Rating", "Total Reviews", "Website", "Google Map Link",
+]
+
+# Common legal-entity suffixes and separator-led branch qualifiers
+# (" - Brooklyn", " (Midtown)", " | Downtown") get stripped before grouping
+# by name. This is a heuristic, not exact matching - inconsistently-branded
+# locations can still be missed, and unrelated businesses with very similar
+# generic names could occasionally get grouped together. Treat results as a
+# strong starting list to verify, not a guaranteed-accurate count.
+_NAME_SUFFIXES_TO_STRIP = {
+    "llc", "llp", "pllc", "pc", "pa", "inc", "incorporated", "ltd", "co",
+    "corp", "company", "group",
+}
+
+
+def _normalize_business_name_for_grouping(name):
+    import re
+
+    name = name.lower()
+    # Cut off anything after a dash/pipe/parenthesis - almost always a
+    # per-branch qualifier ("Business Name - Brooklyn", "(Midtown)").
+    name = re.split(r"[-|(]", name)[0]
+    name = re.sub(r"[^a-z0-9\s]", " ", name)
+    words = [w for w in name.split() if w not in _NAME_SUFFIXES_TO_STRIP]
+    return " ".join(words).strip()
+
+
+def find_multi_location_businesses(api_token, keyword, location, max_places, min_locations=2, min_reviews_per_location=0):
+    """Find businesses in a category/location that show up as 2+ (or
+    min_locations+) separate branch listings, grouped by a normalized
+    version of their name. Google Maps has no "number of locations" field -
+    this works by scraping every matching place in the search and grouping
+    ones that look like the same business. Returns a list of dict rows
+    (MULTI_LOCATION_OUTPUT_FIELDS), one per qualifying location, sorted so
+    branches of the same business are adjacent."""
+    endpoint = f"https://api.apify.com/v2/acts/{PLACES_ACTOR_ID}/run-sync-get-dataset-items"
+    run_input = {
+        "searchStringsArray": [keyword],
+        "locationQuery": location,
+        "maxCrawledPlacesPerSearch": max_places,
+        "language": "en",
+    }
+    response = requests.post(
+        endpoint,
+        params={"token": api_token},
+        json=run_input,
+        timeout=600,
+    )
+    response.raise_for_status()
+    places = response.json()
+
+    groups = {}
+    for place in places:
+        if not place.get("url"):
+            continue
+        reviews_count = place.get("reviewsCount") or 0
+        if reviews_count < min_reviews_per_location:
+            continue
+        key = _normalize_business_name_for_grouping(place.get("title", ""))
+        if not key:
+            continue
+        groups.setdefault(key, []).append(place)
+
+    rows = []
+    for branches in groups.values():
+        if len(branches) < min_locations:
+            continue
+        display_name = branches[0].get("title", "")
+        for place in branches:
+            rows.append({
+                "Business Name": display_name,
+                "Total Locations": len(branches),
+                "Category": place.get("categoryName", ""),
+                "City": place.get("city", "") or "",
+                "State": place.get("state", "") or "",
+                "Rating": place.get("totalScore", ""),
+                "Total Reviews": place.get("reviewsCount", ""),
+                "Website": place.get("website", "") or "",
+                "Google Map Link": place.get("url", ""),
+            })
+    rows.sort(key=lambda r: (-r["Total Locations"], r["Business Name"]))
+    return rows
+
+
+def estimate_multi_location_search_cost(num_places):
+    """Cost for scraping num_places raw places to search for multi-location
+    businesses - no filter add-on used (see find_multi_location_businesses),
+    so this is just the base place-scraped price."""
+    return PLACES_ACTOR_START_PRICE + PLACE_SCRAPED_PRICE * num_places
+
+
 # --- Cost estimation, verified against both actors' live Apify pricing ---
 #
 # Both actors run on Apify's pay-per-event pricing (re-verified 2026-08-09 -

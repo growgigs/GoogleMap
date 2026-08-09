@@ -43,6 +43,7 @@ import streamlit as st
 from gmaps_checker import (
     DAYS_THRESHOLD,
     HARD_COST_CAP_PER_1000,
+    MULTI_LOCATION_OUTPUT_FIELDS,
     OUTPUT_FIELDS,
     WORST_REVIEW_MAX_STARS,
     WORST_REVIEW_OUTPUT_FIELDS,
@@ -51,6 +52,8 @@ from gmaps_checker import (
     check_cost_cap,
     check_worst_review_cost_cap,
     describe_error,
+    estimate_multi_location_search_cost,
+    find_multi_location_businesses,
     normalize_business_row,
     search_places,
 )
@@ -234,7 +237,7 @@ def main():
 
     st.title("Google Maps Review Checker")
 
-    tab_check, tab_history = st.tabs(["Check businesses", "History"])
+    tab_check, tab_multi, tab_history = st.tabs(["Check businesses", "Multi-location finder", "History"])
 
     with tab_check:
         check_mode_label = st.radio(
@@ -368,6 +371,79 @@ def main():
                 )
             else:
                 st.info("No businesses flagged in this run.")
+
+    with tab_multi:
+        st.subheader("Find businesses with multiple locations")
+        st.caption(
+            "Google Maps has no \"number of locations\" field - this works by scraping every "
+            "matching place for a category/location and grouping ones that look like the same "
+            "business by name. It's a heuristic, not exact matching: inconsistently-branded "
+            "locations can be missed, and unrelated businesses with very similar generic names "
+            "could occasionally get grouped together. Treat results as a strong starting list "
+            "to verify, not a guaranteed-accurate count. A single search covers roughly one "
+            "metro area - a chain with branches spread across a whole state may need multiple "
+            "searches (one per region) to catch every location."
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            ml_keyword = st.text_input("Search keyword", placeholder="Immigration attorney", key="ml_keyword")
+        with col2:
+            ml_location = st.text_input("City, State", placeholder="New York, NY", key="ml_location")
+
+        col3, col4, col5 = st.columns(3)
+        with col3:
+            ml_max_places = st.number_input(
+                "Max places to search", min_value=1, max_value=5000, value=100, step=1, key="ml_max_places"
+            )
+        with col4:
+            ml_min_locations = st.number_input(
+                "Minimum locations", min_value=2, max_value=50, value=2, step=1, key="ml_min_locations"
+            )
+        with col5:
+            ml_min_reviews = st.number_input(
+                "Minimum reviews per location", min_value=0, max_value=10000, value=5, step=1, key="ml_min_reviews"
+            )
+
+        ml_cost = estimate_multi_location_search_cost(int(ml_max_places))
+        ml_cost_per_1000 = ml_cost / int(ml_max_places) * 1000 if ml_max_places else 0
+        st.caption(
+            f"Estimated cost: \\${ml_cost:.2f} for {int(ml_max_places)} places scraped "
+            f"(\\${ml_cost_per_1000:.2f} per 1,000) - no per-review cost, so this is a fixed, "
+            "not a worst-case, number."
+        )
+
+        if st.button("Search for multi-location businesses", type="primary", disabled=not (ml_keyword.strip() and ml_location.strip())):
+            with st.spinner(f"Searching for '{ml_keyword}' in {ml_location}..."):
+                try:
+                    ml_rows = find_multi_location_businesses(
+                        api_token,
+                        ml_keyword.strip(),
+                        ml_location.strip(),
+                        int(ml_max_places),
+                        min_locations=int(ml_min_locations),
+                        min_reviews_per_location=int(ml_min_reviews),
+                    )
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Search failed: {describe_error(e)}")
+                    ml_rows = []
+            st.session_state["last_ml_rows"] = ml_rows
+
+        if st.session_state.get("last_ml_rows") is not None:
+            ml_rows = st.session_state["last_ml_rows"]
+            st.subheader("Results")
+            if ml_rows:
+                num_businesses = len({r["Business Name"] for r in ml_rows})
+                st.write(f"Found {num_businesses} business(es) with {int(ml_min_locations)}+ locations ({len(ml_rows)} location rows).")
+                st.dataframe(ml_rows, width="stretch")
+                st.download_button(
+                    "Download CSV",
+                    rows_to_csv(ml_rows, MULTI_LOCATION_OUTPUT_FIELDS),
+                    file_name="multi_location_businesses.csv",
+                    mime="text/csv",
+                )
+            else:
+                st.info("No businesses found with that many locations - try a larger search, a lower minimum, or a different keyword/location.")
 
     with tab_history:
         st.subheader("Past runs")
