@@ -38,6 +38,13 @@ LOW_STARS = {1, 2}
 
 OUTPUT_FIELDS = ["Business Name", "Website", "Reviewer Name", "Star Rating", "Review Age", "Matched Place URL"]
 
+# Only report a business's single worst review if it's this bad or lower -
+# if the lowest review a business has is 3+ stars, there's nothing worth
+# flagging and the business is skipped entirely.
+WORST_REVIEW_MAX_STARS = 2
+
+WORST_REVIEW_OUTPUT_FIELDS = ["Business Name", "Website", "Reviewer Name", "Star Rating", "Matched Place URL"]
+
 # Recognized alternate spellings for each input column, so a CSV exported
 # from a spreadsheet (different capitalization, wording, or a typo like
 # "Goolge Map URL") is still understood instead of silently matching
@@ -111,6 +118,28 @@ def fetch_reviews(api_token, start_url, days_threshold=DAYS_THRESHOLD):
         "maxReviews": MAX_REVIEWS_PER_BUSINESS,
         "reviewsSort": "newest",
         "reviewsStartDate": f"{days_threshold} days",
+        "language": "en",
+    }
+    response = requests.post(
+        endpoint,
+        params={"token": api_token},
+        json=run_input,
+        timeout=300,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_lowest_review(api_token, start_url):
+    """Get just the single lowest-starred review Google has ever recorded
+    for this business - any age, no text required. Cheaper than
+    fetch_reviews() since it asks Apify for exactly one review, sorted
+    worst-first, instead of pulling a whole recency window."""
+    endpoint = f"https://api.apify.com/v2/acts/{REVIEWS_ACTOR_ID}/run-sync-get-dataset-items"
+    run_input = {
+        "startUrls": [{"url": start_url}],
+        "maxReviews": 1,
+        "reviewsSort": "lowestRanking",
         "language": "en",
     }
     response = requests.post(
@@ -231,6 +260,71 @@ def check_businesses_parallel(api_token, businesses, max_workers=MAX_CONCURRENT_
             yield future_to_index[future], future.result()
 
 
+def check_business_worst_review(api_token, business_name="", city="", state="", maps_url="", website=""):
+    """Like check_business(), but ignores recency and review text entirely -
+    just gets the single worst review a business has ever received. Flags
+    it only if that review is WORST_REVIEW_MAX_STARS or lower; if even the
+    worst review is better than that, the business is "clean" (nothing
+    worth reporting) and is skipped from the output, same as check_business()."""
+    label = (business_name or "").strip() or (maps_url or "").strip()
+    if not label:
+        return {"status": "blank"}
+
+    start_url = resolve_start_url(business_name, city, state, maps_url)
+    if not start_url:
+        return {
+            "status": "skipped",
+            "label": label,
+            "reason": "needs either a maps_url, or business_name + city + state all filled in.",
+        }
+
+    try:
+        reviews = fetch_lowest_review(api_token, start_url)
+    except requests.exceptions.RequestException as e:
+        return {"status": "error", "label": label, "reason": describe_error(e)}
+
+    if not reviews:
+        return {"status": "clean", "label": label, "reason": "No reviews found at all."}
+
+    worst = reviews[0]
+    stars = worst.get("stars")
+    if stars is None or stars > WORST_REVIEW_MAX_STARS:
+        return {
+            "status": "clean",
+            "label": label,
+            "reason": f"Lowest review is {stars} stars, above the {WORST_REVIEW_MAX_STARS}-star threshold.",
+        }
+
+    resolved_name = (business_name or "").strip() or worst.get("title", label)
+    matched_place_url = worst.get("url") or start_url
+
+    return {
+        "status": "flagged",
+        "label": label,
+        "row": {
+            "Business Name": resolved_name,
+            "Website": website,
+            "Reviewer Name": worst.get("name", ""),
+            "Star Rating": stars,
+            "Matched Place URL": matched_place_url,
+        },
+    }
+
+
+def check_businesses_worst_review_parallel(api_token, businesses, max_workers=MAX_CONCURRENT_CHECKS):
+    """Same calling convention as check_businesses_parallel(), but for
+    check_business_worst_review() instead."""
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_index = {}
+        for i, business in enumerate(businesses):
+            name, city, state, maps_url = business[:4]
+            website = business[4] if len(business) > 4 else ""
+            future = executor.submit(check_business_worst_review, api_token, name, city, state, maps_url, website)
+            future_to_index[future] = i
+        for future in as_completed(future_to_index):
+            yield future_to_index[future], future.result()
+
+
 def search_places(api_token, keyword, location, max_places):
     """Find businesses matching a category/keyword in a location, using
     Apify's Google Maps Places Scraper. Returns a list of (business_name,
@@ -268,13 +362,26 @@ def search_places(api_token, keyword, location, max_places):
 
 # --- Cost estimation, verified against both actors' live Apify pricing ---
 #
-# compass/crawler-google-places: $0.007 flat per run + $0.004 per place scraped
-# compass/google-maps-reviews-scraper: $0.00005 flat per run (one run per
-# business) + $0.0006 per review scraped
-PLACES_ACTOR_START_PRICE = 0.007
-PLACE_SCRAPED_PRICE = 0.004
+# Both actors run on Apify's pay-per-event pricing (re-verified 2026-08-09 -
+# these actors have switched pricing models before, so re-check against a
+# real run's usageTotalUsd/pricingInfo if these ever look off):
+#   compass/crawler-google-places: $0.003 per place scraped, plus a small
+#     one-time per-run "actor start" fee (~$0.00005/GB memory, negligible
+#     at any real volume).
+#   compass/google-maps-reviews-scraper: $0.00045 per review scraped, plus
+#     the same negligible one-time per-run start fee.
+PLACES_ACTOR_START_PRICE = 0.0002
+PLACE_SCRAPED_PRICE = 0.003
 REVIEWS_ACTOR_START_PRICE = 0.00005
-REVIEW_SCRAPED_PRICE = 0.0006
+REVIEW_SCRAPED_PRICE = 0.00045
+
+# Apify's maxReviews input isn't a hard cap in practice - live testing
+# (2026-08-09) saw it fetch a few reviews past the requested max on some
+# businesses (asked for 1, got up to 5; asked for 20, got 40). This is an
+# empirically-observed ceiling for the worst-review check (one review
+# requested per business), not a documented guarantee from Apify - used
+# here purely to keep the worst-case cost estimate honest.
+WORST_REVIEW_MAX_EVENTS_PER_BUSINESS = 5
 
 # Real-world sampling (several Miami restaurants, Aug 2026) found anywhere
 # from ~3 to ~170 new reviews posted per business in a 21-day window,
@@ -316,6 +423,32 @@ def check_cost_cap(num_businesses):
     worst case, not the typical estimate, so an unlucky batch of popular
     businesses can't blow past HARD_COST_CAP_PER_1000."""
     typical_total, worst_case_total = estimate_search_cost(num_businesses)
+    return {
+        "num_businesses": num_businesses,
+        "typical_total": typical_total,
+        "worst_case_total": worst_case_total,
+        "typical_per_1000": cost_per_1000(typical_total, num_businesses),
+        "worst_case_per_1000": cost_per_1000(worst_case_total, num_businesses),
+        "allowed": cost_per_1000(worst_case_total, num_businesses) <= HARD_COST_CAP_PER_1000,
+    }
+
+
+def estimate_worst_review_cost(num_businesses):
+    """Return (typical_total_usd, worst_case_total_usd) for checking
+    num_businesses with check_business_worst_review() - one requested
+    review per business instead of a whole recency window, so this is far
+    cheaper than estimate_search_cost()'s review-checking side. "Typical"
+    assumes 1 review actually gets charged per business (what most of a
+    small live sample showed); "worst case" assumes
+    WORST_REVIEW_MAX_EVENTS_PER_BUSINESS every time."""
+    typical_total = num_businesses * (REVIEWS_ACTOR_START_PRICE + REVIEW_SCRAPED_PRICE * 1)
+    worst_case_total = num_businesses * (REVIEWS_ACTOR_START_PRICE + REVIEW_SCRAPED_PRICE * WORST_REVIEW_MAX_EVENTS_PER_BUSINESS)
+    return typical_total, worst_case_total
+
+
+def check_worst_review_cost_cap(num_businesses):
+    """Same shape as check_cost_cap(), but for the worst-review check."""
+    typical_total, worst_case_total = estimate_worst_review_cost(num_businesses)
     return {
         "num_businesses": num_businesses,
         "typical_total": typical_total,

@@ -44,8 +44,12 @@ from gmaps_checker import (
     DAYS_THRESHOLD,
     HARD_COST_CAP_PER_1000,
     OUTPUT_FIELDS,
+    WORST_REVIEW_MAX_STARS,
+    WORST_REVIEW_OUTPUT_FIELDS,
     check_businesses_parallel,
+    check_businesses_worst_review_parallel,
     check_cost_cap,
+    check_worst_review_cost_cap,
     describe_error,
     normalize_business_row,
     search_places,
@@ -107,7 +111,7 @@ def save_run(conn, flagged_rows, businesses_checked):
                 row.get("Website", ""),
                 row["Reviewer Name"],
                 row["Star Rating"],
-                row["Review Age"],
+                row.get("Review Age", ""),
                 row["Matched Place URL"],
             ),
         )
@@ -115,9 +119,9 @@ def save_run(conn, flagged_rows, businesses_checked):
     return run_id
 
 
-def rows_to_csv(rows):
+def rows_to_csv(rows, fields=OUTPUT_FIELDS):
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=OUTPUT_FIELDS)
+    writer = csv.DictWriter(buf, fieldnames=fields)
     writer.writeheader()
     writer.writerows(rows)
     return buf.getvalue()
@@ -160,17 +164,25 @@ def check_password():
     return False
 
 
-def run_checks(api_token, businesses, days_threshold):
+def run_checks(api_token, businesses, days_threshold, check_mode):
     """Check every business in `businesses`, showing live progress, then
     save the results to history and store them in session_state for
-    display below."""
+    display below. check_mode is "recent" (recent bad review, with text)
+    or "worst" (single worst review ever, any age, no text required)."""
     progress_area = st.empty()
     log_area = st.container()
     results_by_index = {}
     checked_count = 0
     total = len(businesses)
 
-    for index, result in check_businesses_parallel(api_token, businesses, days_threshold=days_threshold):
+    if check_mode == "worst":
+        checker = check_businesses_worst_review_parallel(api_token, businesses)
+        output_fields = WORST_REVIEW_OUTPUT_FIELDS
+    else:
+        checker = check_businesses_parallel(api_token, businesses, days_threshold=days_threshold)
+        output_fields = OUTPUT_FIELDS
+
+    for index, result in checker:
         results_by_index[index] = result
         if result["status"] == "blank":
             continue
@@ -179,10 +191,15 @@ def run_checks(api_token, businesses, days_threshold):
 
         if result["status"] == "flagged":
             row = result["row"]
-            log_area.write(
-                f"\U0001f6a9 **{row['Business Name']}** - {row['Star Rating']} stars, "
-                f"{row['Review Age']}, by {row['Reviewer Name']}"
-            )
+            if check_mode == "worst":
+                log_area.write(
+                    f"\U0001f6a9 **{row['Business Name']}** - {row['Star Rating']} stars, by {row['Reviewer Name']}"
+                )
+            else:
+                log_area.write(
+                    f"\U0001f6a9 **{row['Business Name']}** - {row['Star Rating']} stars, "
+                    f"{row['Review Age']}, by {row['Reviewer Name']}"
+                )
         elif result["status"] == "error":
             log_area.write(f"⚠️ {result['label']}: {result['reason']}")
         elif result["status"] == "skipped":
@@ -203,6 +220,7 @@ def run_checks(api_token, businesses, days_threshold):
     conn.close()
 
     st.session_state["last_run_rows"] = flagged_rows
+    st.session_state["last_run_fields"] = output_fields
 
 
 def main():
@@ -215,14 +233,30 @@ def main():
         return
 
     st.title("Google Maps Review Checker")
-    st.caption(
-        "Flags businesses with a 1-2 star review (with written text) posted within your "
-        f"chosen recency window (default {DAYS_THRESHOLD} days)."
-    )
 
     tab_check, tab_history = st.tabs(["Check businesses", "History"])
 
     with tab_check:
+        check_mode_label = st.radio(
+            "Check mode",
+            [
+                "Recent bad review (recency window, must have written text)",
+                f"Worst review ever (single lowest-rated review per business, {WORST_REVIEW_MAX_STARS} stars or below, any age, no text required)",
+            ],
+        )
+        check_mode = "worst" if check_mode_label.startswith("Worst") else "recent"
+
+        if check_mode == "worst":
+            st.caption(
+                f"Flags businesses whose single worst-ever review is {WORST_REVIEW_MAX_STARS} stars or "
+                "lower - reviewer name and star rating only, no date filter, no text required."
+            )
+        else:
+            st.caption(
+                "Flags businesses with a 1-2 star review (with written text) posted within your "
+                f"chosen recency window (default {DAYS_THRESHOLD} days)."
+            )
+
         mode = st.radio(
             "Search mode",
             ["Search specific business list", "Search by category + location"],
@@ -279,11 +313,16 @@ def main():
             max_places = st.number_input(
                 "Max businesses to search", min_value=1, max_value=5000, value=20, step=1
             )
-            days_threshold = st.number_input(
-                "Review recency window (days)", min_value=1, max_value=365, value=DAYS_THRESHOLD, step=1
-            )
+            if check_mode == "recent":
+                days_threshold = st.number_input(
+                    "Review recency window (days)", min_value=1, max_value=365, value=DAYS_THRESHOLD, step=1
+                )
 
-            cost_info = check_cost_cap(int(max_places))
+            cost_info = (
+                check_worst_review_cost_cap(int(max_places))
+                if check_mode == "worst"
+                else check_cost_cap(int(max_places))
+            )
             st.caption(
                 f"Estimated businesses: ~{int(max_places)}  ·  "
                 f"Estimated cost: \\${cost_info['typical_total']:.2f} typical "
@@ -311,18 +350,19 @@ def main():
                 st.write(f"Found {len(businesses)} business(es).")
 
             if businesses:
-                run_checks(api_token, businesses, int(days_threshold))
+                run_checks(api_token, businesses, int(days_threshold), check_mode)
             elif mode == "Search by category + location":
                 st.warning("No businesses found for that search - try a different keyword or location.")
 
         if st.session_state.get("last_run_rows") is not None:
             rows = st.session_state["last_run_rows"]
+            fields = st.session_state.get("last_run_fields", OUTPUT_FIELDS)
             st.subheader("2. Results")
             if rows:
                 st.dataframe(rows, width="stretch")
                 st.download_button(
                     "Download CSV",
-                    rows_to_csv(rows),
+                    rows_to_csv(rows, fields),
                     file_name="flagged_businesses.csv",
                     mime="text/csv",
                 )
