@@ -379,6 +379,10 @@ HOTEL_CHAIN_KEYWORDS = {
     "w hotel", "westin", "sheraton", "four points", "aloft", "element hotel",
     "autograph collection", "delta hotels", "gaylord", "st. regis", "st regis",
     "le meridien", "moxy", "ac hotel", "tribute portfolio", "protea hotel",
+    "luxury collection", "four seasons",
+    # Hyatt family
+    "hyatt", "andaz", "alila", "thompson hotel", "destination by hyatt",
+    "unbound collection",
     # Hilton family
     "hilton", "hampton inn", "hampton by hilton", "doubletree", "embassy suites",
     "homewood suites", "home2 suites", "hilton garden inn", "canopy by hilton",
@@ -685,6 +689,21 @@ def find_multi_location_businesses(api_token, keyword, locations, max_places_per
         print(f"WARNING: {len(failed_locations)}/{len(locations)} location(s) failed after retries and were skipped:")
         for location, reason in failed_locations:
             print(f"  - {location}: {reason}")
+
+    # Nearby searched cities can both return the same physical place (e.g.
+    # Tampa and St. Petersburg are close enough that a hotel near the
+    # border could appear in both) - dedupe by Google's own place ID so
+    # the same real location never gets counted twice.
+    seen_place_ids = set()
+    deduped_places = []
+    for place in places:
+        place_id = place.get("placeId")
+        if place_id and place_id in seen_place_ids:
+            continue
+        if place_id:
+            seen_place_ids.add(place_id)
+        deduped_places.append(place)
+    places = deduped_places
 
     groups = {}
     for place in places:
