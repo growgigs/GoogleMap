@@ -361,8 +361,8 @@ def search_places(api_token, keyword, location, max_places):
 
 
 MULTI_LOCATION_OUTPUT_FIELDS = [
-    "Business Name", "Total Locations", "Category", "City", "State",
-    "Rating", "Total Reviews", "Website", "Google Map Link",
+    "Business Name", "Website", "Total Rating", "Total Reviews",
+    "Total Locations", "Google Profile Link",
 ]
 
 # Common legal-entity suffixes and separator-led branch qualifiers
@@ -375,6 +375,96 @@ _NAME_SUFFIXES_TO_STRIP = {
     "llc", "llp", "pllc", "pc", "pa", "inc", "incorporated", "ltd", "co",
     "corp", "company", "group",
 }
+
+
+# Major metros per US state, used to expand a state-level search into
+# several city searches - a bare state name/abbreviation passed straight
+# to Google Maps does NOT actually search the whole state (verified live:
+# "New York", "New York, USA", "New York State", and "NY, USA" all came
+# back clustered in one single area each, and a different area depending
+# on the exact phrasing - not real statewide coverage). This list is what
+# makes state-level search actually work.
+US_STATE_CITIES = {
+    "Alabama": ["Birmingham, AL", "Montgomery, AL", "Huntsville, AL", "Mobile, AL", "Tuscaloosa, AL"],
+    "Alaska": ["Anchorage, AK", "Fairbanks, AK", "Juneau, AK"],
+    "Arizona": ["Phoenix, AZ", "Tucson, AZ", "Mesa, AZ", "Scottsdale, AZ", "Chandler, AZ"],
+    "Arkansas": ["Little Rock, AR", "Fayetteville, AR", "Fort Smith, AR"],
+    "California": ["Los Angeles, CA", "San Diego, CA", "San Jose, CA", "San Francisco, CA", "Fresno, CA", "Sacramento, CA", "Oakland, CA"],
+    "Colorado": ["Denver, CO", "Colorado Springs, CO", "Aurora, CO", "Fort Collins, CO"],
+    "Connecticut": ["Bridgeport, CT", "New Haven, CT", "Hartford, CT", "Stamford, CT"],
+    "Delaware": ["Wilmington, DE", "Dover, DE"],
+    "Florida": ["Jacksonville, FL", "Miami, FL", "Tampa, FL", "Orlando, FL", "St. Petersburg, FL", "Fort Lauderdale, FL"],
+    "Georgia": ["Atlanta, GA", "Augusta, GA", "Columbus, GA", "Savannah, GA"],
+    "Hawaii": ["Honolulu, HI", "Hilo, HI"],
+    "Idaho": ["Boise, ID", "Meridian, ID", "Nampa, ID"],
+    "Illinois": ["Chicago, IL", "Aurora, IL", "Rockford, IL", "Naperville, IL"],
+    "Indiana": ["Indianapolis, IN", "Fort Wayne, IN", "Evansville, IN"],
+    "Iowa": ["Des Moines, IA", "Cedar Rapids, IA", "Davenport, IA"],
+    "Kansas": ["Wichita, KS", "Overland Park, KS", "Kansas City, KS"],
+    "Kentucky": ["Louisville, KY", "Lexington, KY", "Bowling Green, KY"],
+    "Louisiana": ["New Orleans, LA", "Baton Rouge, LA", "Shreveport, LA"],
+    "Maine": ["Portland, ME", "Lewiston, ME", "Bangor, ME"],
+    "Maryland": ["Baltimore, MD", "Frederick, MD", "Rockville, MD"],
+    "Massachusetts": ["Boston, MA", "Worcester, MA", "Springfield, MA", "Cambridge, MA"],
+    "Michigan": ["Detroit, MI", "Grand Rapids, MI", "Ann Arbor, MI", "Lansing, MI"],
+    "Minnesota": ["Minneapolis, MN", "St. Paul, MN", "Rochester, MN"],
+    "Mississippi": ["Jackson, MS", "Gulfport, MS"],
+    "Missouri": ["Kansas City, MO", "St. Louis, MO", "Springfield, MO"],
+    "Montana": ["Billings, MT", "Missoula, MT"],
+    "Nebraska": ["Omaha, NE", "Lincoln, NE"],
+    "Nevada": ["Las Vegas, NV", "Reno, NV", "Henderson, NV"],
+    "New Hampshire": ["Manchester, NH", "Nashua, NH"],
+    "New Jersey": ["Newark, NJ", "Jersey City, NJ", "Trenton, NJ", "Edison, NJ"],
+    "New Mexico": ["Albuquerque, NM", "Las Cruces, NM", "Santa Fe, NM"],
+    "New York": ["New York, NY", "Buffalo, NY", "Rochester, NY", "Albany, NY", "Syracuse, NY", "Yonkers, NY"],
+    "North Carolina": ["Charlotte, NC", "Raleigh, NC", "Greensboro, NC", "Durham, NC"],
+    "North Dakota": ["Fargo, ND", "Bismarck, ND"],
+    "Ohio": ["Columbus, OH", "Cleveland, OH", "Cincinnati, OH", "Toledo, OH"],
+    "Oklahoma": ["Oklahoma City, OK", "Tulsa, OK", "Norman, OK"],
+    "Oregon": ["Portland, OR", "Eugene, OR", "Salem, OR"],
+    "Pennsylvania": ["Philadelphia, PA", "Pittsburgh, PA", "Allentown, PA", "Erie, PA"],
+    "Rhode Island": ["Providence, RI", "Warwick, RI"],
+    "South Carolina": ["Charleston, SC", "Columbia, SC", "Greenville, SC"],
+    "South Dakota": ["Sioux Falls, SD", "Rapid City, SD"],
+    "Tennessee": ["Nashville, TN", "Memphis, TN", "Knoxville, TN", "Chattanooga, TN"],
+    "Texas": ["Houston, TX", "San Antonio, TX", "Dallas, TX", "Austin, TX", "Fort Worth, TX", "El Paso, TX"],
+    "Utah": ["Salt Lake City, UT", "West Valley City, UT", "Provo, UT"],
+    "Vermont": ["Burlington, VT", "South Burlington, VT"],
+    "Virginia": ["Virginia Beach, VA", "Norfolk, VA", "Richmond, VA", "Arlington, VA"],
+    "Washington": ["Seattle, WA", "Spokane, WA", "Tacoma, WA", "Vancouver, WA"],
+    "West Virginia": ["Charleston, WV", "Huntington, WV"],
+    "Wisconsin": ["Milwaukee, WI", "Madison, WI", "Green Bay, WI"],
+    "Wyoming": ["Cheyenne, WY", "Casper, WY"],
+    "District of Columbia": ["Washington, DC"],
+}
+
+# Same lookup, keyed by two-letter abbreviation, so "NY" and "New York"
+# both work.
+_STATE_ABBREVIATIONS = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",
+    "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa",
+    "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri",
+    "MT": "Montana", "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey",
+    "NM": "New Mexico", "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
+    "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont",
+    "VA": "Virginia", "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+    "DC": "District of Columbia",
+}
+
+
+def cities_for_state(state):
+    """Look up the major-city list for a US state, given either its full
+    name or two-letter abbreviation (case-insensitive). Returns None if
+    not recognized."""
+    state = (state or "").strip()
+    full_name = _STATE_ABBREVIATIONS.get(state.upper(), state)
+    for name, cities in US_STATE_CITIES.items():
+        if name.lower() == full_name.lower():
+            return cities
+    return None
 
 
 def _normalize_business_name_for_grouping(name):
@@ -414,18 +504,27 @@ def find_multi_location_businesses(api_token, keyword, locations, max_places_per
     branch listings, grouped by a normalized version of their name. Google
     Maps has no "number of locations" field - this works by scraping every
     matching place for a category and grouping ones that look like the
-    same business. Returns a list of dict rows (MULTI_LOCATION_OUTPUT_FIELDS),
-    one per qualifying location, sorted so branches of the same business
-    are adjacent.
+    same business. Returns one row per qualifying business
+    (MULTI_LOCATION_OUTPUT_FIELDS) - website/rating/reviews/profile link
+    are all taken from that business's "main" location (the branch with
+    the most reviews, as a proxy for its flagship/most-established one).
 
-    `locations` can be a single "City, State" string, or a list of them -
-    pass several (e.g. every major metro in a state) to find businesses
-    whose locations are spread wider than any one city's search radius
-    would catch on its own; results from every location are merged into
-    one pool before grouping, so a chain's branches get counted together
-    even if no single search saw more than one or two of them."""
+    `locations` can be:
+      - a single "City, State" string
+      - a US state name or two-letter abbreviation (e.g. "New York" or
+        "NY") - automatically expands to that state's major metros (see
+        US_STATE_CITIES), since a bare state name passed straight to
+        Google Maps does NOT actually search the whole state (verified
+        live - it just centers on one single, inconsistent interpretation
+        of the text)
+      - a list of "City, State" strings, for full control over exactly
+        which metros to search
+    Results from every location searched are merged into one pool before
+    grouping, so a chain's branches get counted together even if no
+    single search saw more than one or two of them."""
     if isinstance(locations, str):
-        locations = [locations]
+        state_cities = cities_for_state(locations)
+        locations = state_cities if state_cities else [locations]
 
     places = []
     for location in locations:
@@ -447,19 +546,15 @@ def find_multi_location_businesses(api_token, keyword, locations, max_places_per
     for branches in groups.values():
         if len(branches) < min_locations:
             continue
-        display_name = branches[0].get("title", "")
-        for place in branches:
-            rows.append({
-                "Business Name": display_name,
-                "Total Locations": len(branches),
-                "Category": place.get("categoryName", ""),
-                "City": place.get("city", "") or "",
-                "State": place.get("state", "") or "",
-                "Rating": place.get("totalScore", ""),
-                "Total Reviews": place.get("reviewsCount", ""),
-                "Website": place.get("website", "") or "",
-                "Google Map Link": place.get("url", ""),
-            })
+        main = max(branches, key=lambda p: p.get("reviewsCount") or 0)
+        rows.append({
+            "Business Name": main.get("title", ""),
+            "Website": main.get("website", "") or "",
+            "Total Rating": main.get("totalScore", ""),
+            "Total Reviews": main.get("reviewsCount", ""),
+            "Total Locations": len(branches),
+            "Google Profile Link": main.get("url", ""),
+        })
     rows.sort(key=lambda r: (-r["Total Locations"], r["Business Name"]))
     return rows
 

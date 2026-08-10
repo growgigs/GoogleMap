@@ -45,12 +45,14 @@ from gmaps_checker import (
     HARD_COST_CAP_PER_1000,
     MULTI_LOCATION_OUTPUT_FIELDS,
     OUTPUT_FIELDS,
+    US_STATE_CITIES,
     WORST_REVIEW_MAX_STARS,
     WORST_REVIEW_OUTPUT_FIELDS,
     check_businesses_parallel,
     check_businesses_worst_review_parallel,
     check_cost_cap,
     check_worst_review_cost_cap,
+    cities_for_state,
     describe_error,
     estimate_multi_location_search_cost,
     find_multi_location_businesses,
@@ -384,21 +386,25 @@ def main():
         )
 
         ml_keyword = st.text_input("Search keyword", placeholder="Immigration attorney", key="ml_keyword")
-        ml_locations_text = st.text_area(
-            "City, State - one per line. To find businesses with locations spread across a whole "
-            "state (e.g. hunting for 10+ location chains), list several major metros in that state; "
-            "results from every line are merged before counting, so a chain's branches get counted "
-            "together even if no single city saw more than one or two of them.",
-            height=100,
-            placeholder="New York, NY\nBuffalo, NY\nRochester, NY\nAlbany, NY\nSyracuse, NY",
-            key="ml_locations_text",
-        )
-        ml_locations = [line.strip() for line in ml_locations_text.splitlines() if line.strip()]
+
+        ml_state = st.selectbox("State", sorted(US_STATE_CITIES.keys()), key="ml_state")
+        ml_state_cities = cities_for_state(ml_state) or []
+        st.caption(f"Will search {len(ml_state_cities)} major metros in {ml_state}: {', '.join(ml_state_cities)}")
+
+        with st.expander("Advanced: search a custom city list instead of a whole state"):
+            ml_locations_text = st.text_area(
+                "City, State - one per line. If filled in, this replaces the state selection above.",
+                height=100,
+                placeholder="New York, NY\nBuffalo, NY\nRochester, NY",
+                key="ml_locations_text",
+            )
+        ml_custom_locations = [line.strip() for line in ml_locations_text.splitlines() if line.strip()]
+        ml_locations = ml_custom_locations if ml_custom_locations else ml_state_cities
 
         col3, col4, col5 = st.columns(3)
         with col3:
             ml_max_places = st.number_input(
-                "Max places per location", min_value=1, max_value=5000, value=100, step=1, key="ml_max_places"
+                "Max places per city", min_value=1, max_value=5000, value=100, step=1, key="ml_max_places"
             )
         with col4:
             ml_min_locations = st.number_input(
@@ -439,8 +445,7 @@ def main():
             ml_rows = st.session_state["last_ml_rows"]
             st.subheader("Results")
             if ml_rows:
-                num_businesses = len({r["Business Name"] for r in ml_rows})
-                st.write(f"Found {num_businesses} business(es) with {int(ml_min_locations)}+ locations ({len(ml_rows)} location rows).")
+                st.write(f"Found {len(ml_rows)} business(es) with {int(ml_min_locations)}+ locations.")
                 st.dataframe(ml_rows, width="stretch")
                 st.download_button(
                     "Download CSV",
