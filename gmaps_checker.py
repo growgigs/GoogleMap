@@ -455,15 +455,40 @@ _STATE_ABBREVIATIONS = {
 }
 
 
+CANADA_PROVINCE_CITIES = {
+    "Alberta": ["Calgary, AB", "Edmonton, AB", "Red Deer, AB"],
+    "British Columbia": ["Vancouver, BC", "Surrey, BC", "Burnaby, BC", "Victoria, BC"],
+    "Manitoba": ["Winnipeg, MB", "Brandon, MB"],
+    "New Brunswick": ["Saint John, NB", "Moncton, NB", "Fredericton, NB"],
+    "Newfoundland and Labrador": ["St. John's, NL"],
+    "Northwest Territories": ["Yellowknife, NT"],
+    "Nova Scotia": ["Halifax, NS", "Sydney, NS"],
+    "Nunavut": ["Iqaluit, NU"],
+    "Ontario": ["Toronto, ON", "Ottawa, ON", "Mississauga, ON", "Hamilton, ON", "London, ON"],
+    "Prince Edward Island": ["Charlottetown, PE"],
+    "Quebec": ["Montreal, QC", "Quebec City, QC", "Laval, QC", "Gatineau, QC"],
+    "Saskatchewan": ["Saskatoon, SK", "Regina, SK"],
+    "Yukon": ["Whitehorse, YT"],
+}
+
+_PROVINCE_ABBREVIATIONS = {
+    "AB": "Alberta", "BC": "British Columbia", "MB": "Manitoba", "NB": "New Brunswick",
+    "NL": "Newfoundland and Labrador", "NT": "Northwest Territories", "NS": "Nova Scotia",
+    "NU": "Nunavut", "ON": "Ontario", "PE": "Prince Edward Island", "QC": "Quebec",
+    "SK": "Saskatchewan", "YT": "Yukon",
+}
+
+
 def cities_for_state(state):
-    """Look up the major-city list for a US state, given either its full
-    name or two-letter abbreviation (case-insensitive). Returns None if
-    not recognized."""
+    """Look up the major-city list for a US state or Canadian province/
+    territory, given either its full name or two-letter abbreviation
+    (case-insensitive). Returns None if not recognized."""
     state = (state or "").strip()
-    full_name = _STATE_ABBREVIATIONS.get(state.upper(), state)
-    for name, cities in US_STATE_CITIES.items():
-        if name.lower() == full_name.lower():
-            return cities
+    full_name = _STATE_ABBREVIATIONS.get(state.upper()) or _PROVINCE_ABBREVIATIONS.get(state.upper()) or state
+    for region in (US_STATE_CITIES, CANADA_PROVINCE_CITIES):
+        for name, cities in region.items():
+            if name.lower() == full_name.lower():
+                return cities
     return None
 
 
