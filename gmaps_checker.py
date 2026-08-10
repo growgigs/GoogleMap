@@ -520,6 +520,36 @@ CANADA_PROVINCE_CITIES = {
     "Yukon": ["Whitehorse, YT"],
 }
 
+US_RESORT_DESTINATIONS = [
+    # Northeast
+    "Hyannis, MA", "Newport, RI", "Lake George, NY", "Niagara Falls, NY",
+    "Stroudsburg, PA", "Bar Harbor, ME", "Kennebunkport, ME", "Edgartown, MA",
+    "Nantucket, MA", "Lake Placid, NY", "Saratoga Springs, NY", "North Conway, NH",
+    "Stowe, VT",
+    # Southeast
+    "Key West, FL", "Naples, FL", "Destin, FL", "Panama City Beach, FL",
+    "Sarasota, FL", "St. Augustine, FL", "Amelia Island, FL", "Clearwater Beach, FL",
+    "Hilton Head Island, SC", "Myrtle Beach, SC", "Charleston, SC", "Savannah, GA",
+    "Gatlinburg, TN", "Pigeon Forge, TN", "Asheville, NC", "Nags Head, NC",
+    "Virginia Beach, VA", "Williamsburg, VA",
+    # Midwest
+    "Wisconsin Dells, WI", "Mackinac Island, MI", "Traverse City, MI",
+    "Sturgeon Bay, WI", "Lake Geneva, WI", "Branson, MO", "Put-in-Bay, OH",
+    # Mountain West / Southwest
+    "Aspen, CO", "Vail, CO", "Breckenridge, CO", "Park City, UT", "Jackson, WY",
+    "Sedona, AZ", "Scottsdale, AZ", "Santa Fe, NM", "Taos, NM", "Moab, UT",
+    "South Lake Tahoe, CA",
+    # West Coast
+    "Napa, CA", "Sonoma, CA", "Monterey, CA", "Carmel-By-The-Sea, CA",
+    "Santa Barbara, CA", "Newport Beach, CA", "Palm Springs, CA", "Cannon Beach, OR",
+    "Bend, OR", "Leavenworth, WA",
+    # Gulf / Texas
+    "South Padre Island, TX", "Galveston, TX",
+    # Hawaii
+    "Lahaina, HI", "Lihue, HI",
+]
+
+
 _PROVINCE_ABBREVIATIONS = {
     "AB": "Alberta", "BC": "British Columbia", "MB": "Manitoba", "NB": "New Brunswick",
     "NL": "Newfoundland and Labrador", "NT": "Northwest Territories", "NS": "Nova Scotia",

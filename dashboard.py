@@ -46,6 +46,7 @@ from gmaps_checker import (
     HARD_COST_CAP_PER_1000,
     MULTI_LOCATION_OUTPUT_FIELDS,
     OUTPUT_FIELDS,
+    US_RESORT_DESTINATIONS,
     US_STATE_CITIES,
     WORST_REVIEW_MAX_STARS,
     WORST_REVIEW_OUTPUT_FIELDS,
@@ -409,6 +410,16 @@ def main():
             "match could still be part of a much larger national chain. Best-effort name list, not guaranteed complete.",
             key="ml_exclude_chains",
         )
+        ml_include_resorts = False
+        if ml_country == "United States":
+            ml_include_resorts = st.checkbox(
+                f"Also search {len(US_RESORT_DESTINATIONS)} major US tourist/resort destinations (Key West, "
+                "Aspen, Napa, etc.) - useful for hotel/resort-style categories, which cluster in leisure "
+                "destinations rather than the biggest population metros above.",
+                key="ml_include_resorts",
+            )
+            if ml_include_resorts:
+                ml_state_cities = list(dict.fromkeys(ml_state_cities + US_RESORT_DESTINATIONS))
 
         with st.expander("Advanced: search a custom city list instead of a whole state"):
             ml_locations_text = st.text_area(
