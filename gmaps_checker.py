@@ -394,7 +394,7 @@ HOTEL_CHAIN_KEYWORDS = {
     # Wyndham family
     "wyndham", "days inn", "super 8", "ramada", "howard johnson", "travelodge",
     "baymont", "microtel", "la quinta", "wingate by wyndham", "hawthorn suites",
-    "dolce hotel",
+    "dolce hotel", "worldmark",
     # Choice Hotels family
     "comfort inn", "comfort suites", "quality inn", "sleep inn", "clarion",
     "mainstay suites", "suburban extended stay", "econo lodge", "rodeway inn",
@@ -404,7 +404,7 @@ HOTEL_CHAIN_KEYWORDS = {
     "radisson", "country inn & suites", "country inn and suites", "park inn",
     "sonesta", "red lion hotel", "knights inn", "america's best value inn",
     "americas best value inn", "vagabond inn", "intown suites", "drury inn",
-    "drury plaza", "candlewood",
+    "drury plaza", "candlewood", "great wolf lodge",
 }
 
 
