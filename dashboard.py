@@ -376,25 +376,29 @@ def main():
         st.subheader("Find businesses with multiple locations")
         st.caption(
             "Google Maps has no \"number of locations\" field - this works by scraping every "
-            "matching place for a category/location and grouping ones that look like the same "
-            "business by name. It's a heuristic, not exact matching: inconsistently-branded "
-            "locations can be missed, and unrelated businesses with very similar generic names "
-            "could occasionally get grouped together. Treat results as a strong starting list "
-            "to verify, not a guaranteed-accurate count. A single search covers roughly one "
-            "metro area - a chain with branches spread across a whole state may need multiple "
-            "searches (one per region) to catch every location."
+            "matching place for a category across the location(s) below and grouping ones that "
+            "look like the same business by name. It's a heuristic, not exact matching: "
+            "inconsistently-branded locations can be missed, and unrelated businesses with very "
+            "similar generic names could occasionally get grouped together. Treat results as a "
+            "strong starting list to verify, not a guaranteed-accurate count."
         )
 
-        col1, col2 = st.columns(2)
-        with col1:
-            ml_keyword = st.text_input("Search keyword", placeholder="Immigration attorney", key="ml_keyword")
-        with col2:
-            ml_location = st.text_input("City, State", placeholder="New York, NY", key="ml_location")
+        ml_keyword = st.text_input("Search keyword", placeholder="Immigration attorney", key="ml_keyword")
+        ml_locations_text = st.text_area(
+            "City, State - one per line. To find businesses with locations spread across a whole "
+            "state (e.g. hunting for 10+ location chains), list several major metros in that state; "
+            "results from every line are merged before counting, so a chain's branches get counted "
+            "together even if no single city saw more than one or two of them.",
+            height=100,
+            placeholder="New York, NY\nBuffalo, NY\nRochester, NY\nAlbany, NY\nSyracuse, NY",
+            key="ml_locations_text",
+        )
+        ml_locations = [line.strip() for line in ml_locations_text.splitlines() if line.strip()]
 
         col3, col4, col5 = st.columns(3)
         with col3:
             ml_max_places = st.number_input(
-                "Max places to search", min_value=1, max_value=5000, value=100, step=1, key="ml_max_places"
+                "Max places per location", min_value=1, max_value=5000, value=100, step=1, key="ml_max_places"
             )
         with col4:
             ml_min_locations = st.number_input(
@@ -405,21 +409,23 @@ def main():
                 "Minimum reviews per location", min_value=0, max_value=10000, value=5, step=1, key="ml_min_reviews"
             )
 
-        ml_cost = estimate_multi_location_search_cost(int(ml_max_places))
-        ml_cost_per_1000 = ml_cost / int(ml_max_places) * 1000 if ml_max_places else 0
+        ml_total_places = int(ml_max_places) * len(ml_locations)
+        ml_cost = estimate_multi_location_search_cost(ml_total_places)
+        ml_cost_per_1000 = ml_cost / ml_total_places * 1000 if ml_total_places else 0
         st.caption(
-            f"Estimated cost: \\${ml_cost:.2f} for {int(ml_max_places)} places scraped "
+            f"{len(ml_locations)} location(s) × {int(ml_max_places)} places each = "
+            f"{ml_total_places} places scraped. Estimated cost: \\${ml_cost:.2f} "
             f"(\\${ml_cost_per_1000:.2f} per 1,000) - no per-review cost, so this is a fixed, "
             "not a worst-case, number."
         )
 
-        if st.button("Search for multi-location businesses", type="primary", disabled=not (ml_keyword.strip() and ml_location.strip())):
-            with st.spinner(f"Searching for '{ml_keyword}' in {ml_location}..."):
+        if st.button("Search for multi-location businesses", type="primary", disabled=not (ml_keyword.strip() and ml_locations)):
+            with st.spinner(f"Searching for '{ml_keyword}' across {len(ml_locations)} location(s)..."):
                 try:
                     ml_rows = find_multi_location_businesses(
                         api_token,
                         ml_keyword.strip(),
-                        ml_location.strip(),
+                        ml_locations,
                         int(ml_max_places),
                         min_locations=int(ml_min_locations),
                         min_reviews_per_location=int(ml_min_reviews),

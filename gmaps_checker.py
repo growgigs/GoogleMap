@@ -389,14 +389,9 @@ def _normalize_business_name_for_grouping(name):
     return " ".join(words).strip()
 
 
-def find_multi_location_businesses(api_token, keyword, location, max_places, min_locations=2, min_reviews_per_location=0):
-    """Find businesses in a category/location that show up as 2+ (or
-    min_locations+) separate branch listings, grouped by a normalized
-    version of their name. Google Maps has no "number of locations" field -
-    this works by scraping every matching place in the search and grouping
-    ones that look like the same business. Returns a list of dict rows
-    (MULTI_LOCATION_OUTPUT_FIELDS), one per qualifying location, sorted so
-    branches of the same business are adjacent."""
+def _search_raw_places(api_token, keyword, location, max_places):
+    """One category+location scrape, returning the raw place dicts exactly
+    as Apify's Places Scraper gives them back."""
     endpoint = f"https://api.apify.com/v2/acts/{PLACES_ACTOR_ID}/run-sync-get-dataset-items"
     run_input = {
         "searchStringsArray": [keyword],
@@ -411,7 +406,30 @@ def find_multi_location_businesses(api_token, keyword, location, max_places, min
         timeout=600,
     )
     response.raise_for_status()
-    places = response.json()
+    return response.json()
+
+
+def find_multi_location_businesses(api_token, keyword, locations, max_places_per_location, min_locations=2, min_reviews_per_location=0):
+    """Find businesses that show up as 2+ (or min_locations+) separate
+    branch listings, grouped by a normalized version of their name. Google
+    Maps has no "number of locations" field - this works by scraping every
+    matching place for a category and grouping ones that look like the
+    same business. Returns a list of dict rows (MULTI_LOCATION_OUTPUT_FIELDS),
+    one per qualifying location, sorted so branches of the same business
+    are adjacent.
+
+    `locations` can be a single "City, State" string, or a list of them -
+    pass several (e.g. every major metro in a state) to find businesses
+    whose locations are spread wider than any one city's search radius
+    would catch on its own; results from every location are merged into
+    one pool before grouping, so a chain's branches get counted together
+    even if no single search saw more than one or two of them."""
+    if isinstance(locations, str):
+        locations = [locations]
+
+    places = []
+    for location in locations:
+        places.extend(_search_raw_places(api_token, keyword, location, max_places_per_location))
 
     groups = {}
     for place in places:
