@@ -603,6 +603,25 @@ def _search_raw_places(api_token, keyword, location, max_places):
     return response.json()
 
 
+def _search_raw_places_resilient(api_token, keyword, location, max_places, max_attempts=3):
+    """Same as _search_raw_places(), but retries transient failures (e.g.
+    Apify's occasional 502s under sustained load) with backoff instead of
+    letting one bad request take down an entire multi-city batch. Returns
+    (location, places, error) - error is None on success, or the last
+    exception if every attempt failed (in which case places is [])."""
+    import time as _time
+
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            return location, _search_raw_places(api_token, keyword, location, max_places), None
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            if attempt < max_attempts - 1:
+                _time.sleep(2 ** attempt * 2)  # 2s, 4s, ...
+    return location, [], last_error
+
+
 def find_multi_location_businesses(api_token, keyword, locations, max_places_per_location, min_locations=2, min_reviews_per_location=0, max_locations=None, exclude_hotel_chains=False, max_concurrent_searches=8):
     """Find businesses that show up as 2+ (or min_locations+) separate
     branch listings, grouped by a normalized version of their name. Google
@@ -650,10 +669,22 @@ def find_multi_location_businesses(api_token, keyword, locations, max_places_per
             locations = state_cities if state_cities else [locations]
 
     places = []
+    failed_locations = []
     with ThreadPoolExecutor(max_workers=max_concurrent_searches) as executor:
-        futures = [executor.submit(_search_raw_places, api_token, keyword, location, max_places_per_location) for location in locations]
+        futures = [
+            executor.submit(_search_raw_places_resilient, api_token, keyword, location, max_places_per_location)
+            for location in locations
+        ]
         for future in as_completed(futures):
-            places.extend(future.result())
+            location, location_places, error = future.result()
+            if error is not None:
+                failed_locations.append((location, describe_error(error)))
+            places.extend(location_places)
+
+    if failed_locations:
+        print(f"WARNING: {len(failed_locations)}/{len(locations)} location(s) failed after retries and were skipped:")
+        for location, reason in failed_locations:
+            print(f"  - {location}: {reason}")
 
     groups = {}
     for place in places:
