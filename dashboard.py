@@ -406,7 +406,7 @@ def main():
         ml_custom_locations = [line.strip() for line in ml_locations_text.splitlines() if line.strip()]
         ml_locations = ml_custom_locations if ml_custom_locations else ml_state_cities
 
-        col3, col4, col5 = st.columns(3)
+        col3, col4, col5, col6 = st.columns(4)
         with col3:
             ml_max_places = st.number_input(
                 "Max places per city", min_value=1, max_value=5000, value=100, step=1, key="ml_max_places"
@@ -416,6 +416,10 @@ def main():
                 "Minimum locations", min_value=2, max_value=50, value=2, step=1, key="ml_min_locations"
             )
         with col5:
+            ml_max_locations = st.number_input(
+                "Maximum locations (0 = no cap)", min_value=0, max_value=10000, value=0, step=1, key="ml_max_locations"
+            )
+        with col6:
             ml_min_reviews = st.number_input(
                 "Minimum reviews per location", min_value=0, max_value=10000, value=5, step=1, key="ml_min_reviews"
             )
@@ -440,6 +444,7 @@ def main():
                         int(ml_max_places),
                         min_locations=int(ml_min_locations),
                         min_reviews_per_location=int(ml_min_reviews),
+                        max_locations=int(ml_max_locations) if ml_max_locations else None,
                     )
                 except requests.exceptions.RequestException as e:
                     st.error(f"Search failed: {describe_error(e)}")

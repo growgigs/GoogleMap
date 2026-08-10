@@ -524,7 +524,7 @@ def _search_raw_places(api_token, keyword, location, max_places):
     return response.json()
 
 
-def find_multi_location_businesses(api_token, keyword, locations, max_places_per_location, min_locations=2, min_reviews_per_location=0):
+def find_multi_location_businesses(api_token, keyword, locations, max_places_per_location, min_locations=2, min_reviews_per_location=0, max_locations=None):
     """Find businesses that show up as 2+ (or min_locations+) separate
     branch listings, grouped by a normalized version of their name. Google
     Maps has no "number of locations" field - this works by scraping every
@@ -570,6 +570,8 @@ def find_multi_location_businesses(api_token, keyword, locations, max_places_per
     rows = []
     for branches in groups.values():
         if len(branches) < min_locations:
+            continue
+        if max_locations is not None and len(branches) > max_locations:
             continue
         main = max(branches, key=lambda p: p.get("reviewsCount") or 0)
         rows.append({
