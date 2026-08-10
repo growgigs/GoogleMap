@@ -389,12 +389,26 @@ def main():
         ml_keyword = st.text_input("Search keyword", placeholder="Immigration attorney", key="ml_keyword")
 
         ml_country = st.radio("Country", ["United States", "Canada"], horizontal=True, key="ml_country")
-        if ml_country == "Canada":
-            ml_state = st.selectbox("Province/Territory", sorted(CANADA_PROVINCE_CITIES.keys()), key="ml_province")
+        region_map = CANADA_PROVINCE_CITIES if ml_country == "Canada" else US_STATE_CITIES
+        ml_nationwide = st.checkbox(f"Search the entire country (all {len(region_map)} states/provinces)", key="ml_nationwide")
+
+        if ml_nationwide:
+            ml_state_cities = [city for cities in region_map.values() for city in cities]
+            st.caption(f"Will search all {len(ml_state_cities)} major metros across {ml_country}.")
         else:
-            ml_state = st.selectbox("State", sorted(US_STATE_CITIES.keys()), key="ml_state")
-        ml_state_cities = cities_for_state(ml_state) or []
-        st.caption(f"Will search {len(ml_state_cities)} major metros in {ml_state}: {', '.join(ml_state_cities)}")
+            if ml_country == "Canada":
+                ml_state = st.selectbox("Province/Territory", sorted(CANADA_PROVINCE_CITIES.keys()), key="ml_province")
+            else:
+                ml_state = st.selectbox("State", sorted(US_STATE_CITIES.keys()), key="ml_state")
+            ml_state_cities = cities_for_state(ml_state) or []
+            st.caption(f"Will search {len(ml_state_cities)} major metros in {ml_state}: {', '.join(ml_state_cities)}")
+
+        ml_exclude_chains = st.checkbox(
+            "Exclude major hotel/motel chains (Hilton, Marriott, IHG, Wyndham, Choice, and other franchise "
+            "brand families) - our own location count only reflects what this search found, so a 2-location "
+            "match could still be part of a much larger national chain. Best-effort name list, not guaranteed complete.",
+            key="ml_exclude_chains",
+        )
 
         with st.expander("Advanced: search a custom city list instead of a whole state"):
             ml_locations_text = st.text_area(
@@ -445,6 +459,7 @@ def main():
                         min_locations=int(ml_min_locations),
                         min_reviews_per_location=int(ml_min_reviews),
                         max_locations=int(ml_max_locations) if ml_max_locations else None,
+                        exclude_hotel_chains=ml_exclude_chains,
                     )
                 except requests.exceptions.RequestException as e:
                     st.error(f"Search failed: {describe_error(e)}")

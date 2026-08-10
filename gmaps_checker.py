@@ -360,6 +360,55 @@ def search_places(api_token, keyword, location, max_places):
     ]
 
 
+# Major hotel/motel brand names to exclude when hunting for independent
+# operators. This exists because our own location-count is only ever a
+# count of what we found IN THIS SEARCH - a Hampton Inn that only shows up
+# twice in our sample is still part of a chain with thousands of locations
+# nationwide, not a genuine 2-location independent business. There's no
+# way to know a business's true total location count from Google Maps
+# data alone, so for franchise-heavy categories (hotels, motels), name-
+# based exclusion is the only real way to filter them out. This is a
+# best-effort list of the major US/Canada hotel brand families - it will
+# not catch every franchise brand that exists, and could in rare cases
+# exclude an independent business that coincidentally shares a word with
+# a brand name (e.g. an independent "Value Inn").
+HOTEL_CHAIN_KEYWORDS = {
+    # Marriott family
+    "marriott", "courtyard", "residence inn", "fairfield inn", "springhill suites",
+    "towneplace suites", "renaissance hotel", "ritz-carlton", "ritz carlton", "jw marriott",
+    "w hotel", "westin", "sheraton", "four points", "aloft", "element hotel",
+    "autograph collection", "delta hotels", "gaylord", "st. regis", "st regis",
+    "le meridien", "moxy", "ac hotel", "tribute portfolio", "protea hotel",
+    # Hilton family
+    "hilton", "hampton inn", "hampton by hilton", "doubletree", "embassy suites",
+    "homewood suites", "home2 suites", "hilton garden inn", "canopy by hilton",
+    "curio collection", "tapestry collection", "tru by hilton", "waldorf astoria",
+    "conrad hotel", "motto by hilton",
+    # IHG family
+    "holiday inn", "intercontinental", "crowne plaza", "candlewood suites",
+    "staybridge suites", "kimpton", "even hotel", "hotel indigo", "avid hotel", "voco",
+    # Wyndham family
+    "wyndham", "days inn", "super 8", "ramada", "howard johnson", "travelodge",
+    "baymont", "microtel", "la quinta", "wingate by wyndham", "hawthorn suites",
+    "dolce hotel",
+    # Choice Hotels family
+    "comfort inn", "comfort suites", "quality inn", "sleep inn", "clarion",
+    "mainstay suites", "suburban extended stay", "econo lodge", "rodeway inn",
+    "cambria hotel", "woodspring suites", "everhome suites",
+    # Other major chains
+    "best western", "extended stay america", "motel 6", "studio 6", "red roof inn",
+    "radisson", "country inn & suites", "country inn and suites", "park inn",
+    "sonesta", "red lion hotel", "knights inn", "america's best value inn",
+    "americas best value inn", "vagabond inn", "intown suites", "drury inn",
+    "drury plaza", "candlewood",
+}
+
+
+def _is_hotel_chain(name):
+    name_lower = name.lower()
+    return any(keyword in name_lower for keyword in HOTEL_CHAIN_KEYWORDS)
+
+
 MULTI_LOCATION_OUTPUT_FIELDS = [
     "Business Name", "Website", "Total Rating", "Total Reviews",
     "Total Locations", "Google Profile Link",
@@ -524,7 +573,7 @@ def _search_raw_places(api_token, keyword, location, max_places):
     return response.json()
 
 
-def find_multi_location_businesses(api_token, keyword, locations, max_places_per_location, min_locations=2, min_reviews_per_location=0, max_locations=None):
+def find_multi_location_businesses(api_token, keyword, locations, max_places_per_location, min_locations=2, min_reviews_per_location=0, max_locations=None, exclude_hotel_chains=False, max_concurrent_searches=8):
     """Find businesses that show up as 2+ (or min_locations+) separate
     branch listings, grouped by a normalized version of their name. Google
     Maps has no "number of locations" field - this works by scraping every
@@ -544,25 +593,49 @@ def find_multi_location_businesses(api_token, keyword, locations, max_places_per
         of the text)
       - a list of "City, State" strings, for full control over exactly
         which metros to search
+      - "USA" / "United States" / "Canada" - every state/province in that
+        country
     Results from every location searched are merged into one pool before
     grouping, so a chain's branches get counted together even if no
-    single search saw more than one or two of them."""
+    single search saw more than one or two of them.
+
+    City searches run concurrently (max_concurrent_searches at a time)
+    rather than one at a time - a nationwide sweep sequentially would take
+    hours.
+
+    exclude_hotel_chains=True drops any place matching a known major hotel/
+    motel brand (see HOTEL_CHAIN_KEYWORDS) before grouping - our own
+    location count only reflects what THIS search found, so a brand with 2
+    locations in our sample could still be part of a 500-location national
+    chain; this is the only real way to filter those out for a franchise-
+    heavy category like hotels. It's a best-effort name list, not
+    guaranteed complete or free of false positives."""
     if isinstance(locations, str):
-        state_cities = cities_for_state(locations)
-        locations = state_cities if state_cities else [locations]
+        if locations.strip().lower() in ("usa", "united states", "us"):
+            locations = [city for cities in US_STATE_CITIES.values() for city in cities]
+        elif locations.strip().lower() == "canada":
+            locations = [city for cities in CANADA_PROVINCE_CITIES.values() for city in cities]
+        else:
+            state_cities = cities_for_state(locations)
+            locations = state_cities if state_cities else [locations]
 
     places = []
-    for location in locations:
-        places.extend(_search_raw_places(api_token, keyword, location, max_places_per_location))
+    with ThreadPoolExecutor(max_workers=max_concurrent_searches) as executor:
+        futures = [executor.submit(_search_raw_places, api_token, keyword, location, max_places_per_location) for location in locations]
+        for future in as_completed(futures):
+            places.extend(future.result())
 
     groups = {}
     for place in places:
         if not place.get("url"):
             continue
+        title = place.get("title", "")
+        if exclude_hotel_chains and _is_hotel_chain(title):
+            continue
         reviews_count = place.get("reviewsCount") or 0
         if reviews_count < min_reviews_per_location:
             continue
-        key = _normalize_business_name_for_grouping(place.get("title", ""))
+        key = _normalize_business_name_for_grouping(title)
         if not key:
             continue
         groups.setdefault(key, []).append(place)
