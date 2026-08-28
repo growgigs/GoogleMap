@@ -449,6 +449,15 @@ def main():
                 "Minimum reviews per location", min_value=0, max_value=10000, value=5, step=1, key="ml_min_reviews"
             )
 
+        ml_min_price = st.number_input(
+            "Minimum average price per person, $ (0 = no filter)",
+            min_value=0, max_value=1000, value=0, step=5, key="ml_min_price",
+            help="For restaurant-type categories: Google's search keyword text does NOT filter by price tier "
+            "(a \"fine dining restaurant\" search comes back full of fast food chains). This filters by "
+            "Google's actual listed price data instead, and drops places with no price data at all "
+            "since they can't be verified either way.",
+        )
+
         ml_total_places = int(ml_max_places) * len(ml_locations)
         ml_cost = estimate_multi_location_search_cost(ml_total_places)
         ml_cost_per_1000 = ml_cost / ml_total_places * 1000 if ml_total_places else 0
@@ -471,6 +480,7 @@ def main():
                         min_reviews_per_location=int(ml_min_reviews),
                         max_locations=int(ml_max_locations) if ml_max_locations else None,
                         exclude_hotel_chains=ml_exclude_chains,
+                        min_price=int(ml_min_price) if ml_min_price else None,
                     )
                 except requests.exceptions.RequestException as e:
                     st.error(f"Search failed: {describe_error(e)}")

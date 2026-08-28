@@ -5,6 +5,7 @@ Apify's Google Maps Reviews Scraper. Used by both check_businesses.py
 actual checking rules only exist in one place.
 """
 
+import re
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -626,7 +627,35 @@ def _search_raw_places_resilient(api_token, keyword, location, max_places, max_a
     return location, [], last_error
 
 
-def find_multi_location_businesses(api_token, keyword, locations, max_places_per_location, min_locations=2, min_reviews_per_location=0, max_locations=None, exclude_hotel_chains=False, max_concurrent_searches=8):
+def _price_high_end(price_str):
+    """Parse Google's place price string (e.g. "$100+", "$20-30", "$10")
+    into its upper-bound dollar estimate, or None if there's no price data
+    at all. Google's search keyword text (e.g. "fine dining restaurant")
+    does NOT actually filter by price tier - verified live, a nationwide
+    "fine dining restaurant" search came back full of Red Lobster, 7-Eleven,
+    and Cracker Barrel. This is the only reliable way to filter restaurant-
+    type categories by how expensive they actually are."""
+    if not price_str:
+        return None
+    s = price_str.replace("–", "-").replace(",", "")
+    if "+" in s:
+        match = re.search(r"(\d+)", s)
+        return int(match.group(1)) if match else None
+    nums = re.findall(r"(\d+)", s)
+    if not nums:
+        return None
+    return int(nums[-1])
+
+
+def _meets_min_price(place, min_price):
+    """True if this place's price data indicates an average cost at or
+    above min_price. Places with no price listed on Google at all are
+    excluded, not assumed to pass - there's no way to verify them."""
+    high_end = _price_high_end(place.get("price"))
+    return high_end is not None and high_end >= min_price
+
+
+def find_multi_location_businesses(api_token, keyword, locations, max_places_per_location, min_locations=2, min_reviews_per_location=0, max_locations=None, exclude_hotel_chains=False, min_price=None, max_concurrent_searches=8):
     """Find businesses that show up as 2+ (or min_locations+) separate
     branch listings, grouped by a normalized version of their name. Google
     Maps has no "number of locations" field - this works by scraping every
@@ -662,7 +691,17 @@ def find_multi_location_businesses(api_token, keyword, locations, max_places_per
     locations in our sample could still be part of a 500-location national
     chain; this is the only real way to filter those out for a franchise-
     heavy category like hotels. It's a best-effort name list, not
-    guaranteed complete or free of false positives."""
+    guaranteed complete or free of false positives.
+
+    min_price filters out places whose Google-listed average price (e.g.
+    "$100+", "$20-30") comes in below this dollar amount, and drops places
+    with no price data at all (unverifiable, not assumed to pass). This
+    matters for restaurant-type searches specifically - verified live, a
+    keyword like "fine dining restaurant" does NOT actually filter Google's
+    results by price tier, it just full-text-matches "restaurant"; a
+    nationwide run came back full of Red Lobster, 7-Eleven, and Cracker
+    Barrel. min_price is the only reliable way to restrict to an actual
+    price tier."""
     if isinstance(locations, str):
         if locations.strip().lower() in ("usa", "united states", "us"):
             locations = [city for cities in US_STATE_CITIES.values() for city in cities]
@@ -714,6 +753,8 @@ def find_multi_location_businesses(api_token, keyword, locations, max_places_per
             continue
         reviews_count = place.get("reviewsCount") or 0
         if reviews_count < min_reviews_per_location:
+            continue
+        if min_price is not None and not _meets_min_price(place, min_price):
             continue
         key = _normalize_business_name_for_grouping(title)
         if not key:
