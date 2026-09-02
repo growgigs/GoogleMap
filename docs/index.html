@@ -124,6 +124,29 @@
   }
   .success.shown { display: block; }
   .success h2 { margin-bottom: 6px; }
+  .faq {
+    margin-top: 40px;
+  }
+  .faq h2 {
+    font-size: 1.2rem;
+    margin: 0 0 16px;
+  }
+  .faq-item {
+    border-top: 1px solid var(--border);
+    padding: 18px 0;
+  }
+  .faq-item:last-child {
+    padding-bottom: 0;
+  }
+  .faq-item h3 {
+    font-size: 1rem;
+    margin: 0 0 8px;
+  }
+  .faq-item p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
   footer {
     margin-top: 56px;
     font-size: 0.82rem;
@@ -180,6 +203,18 @@
       <div id="success" class="success">
         <h2>Got it — thank you!</h2>
         <p>We'll put your sample list together and email it to you within 48 hours.</p>
+      </div>
+    </div>
+
+    <div class="faq">
+      <h2>FAQ</h2>
+      <div class="faq-item">
+        <h3>Do you offer refunds?</h3>
+        <p>
+          We work on a success/removal basis, so you only pay once we've confirmed the
+          review is removed — that means we don't offer refunds. If the same reviewer
+          posts another review afterward, we'll remove that one for half the price.
+        </p>
       </div>
     </div>
 
