@@ -42,6 +42,7 @@ import streamlit as st
 
 from gmaps_checker import (
     CANADA_PROVINCE_CITIES,
+    CATEGORY_KEYWORD_PRESETS,
     DAYS_THRESHOLD,
     HARD_COST_CAP_PER_1000,
     MULTI_LOCATION_OUTPUT_FIELDS,
@@ -387,7 +388,24 @@ def main():
             "strong starting list to verify, not a guaranteed-accurate count."
         )
 
-        ml_keyword = st.text_input("Search keyword", placeholder="Immigration attorney", key="ml_keyword")
+        ml_category = st.selectbox(
+            "Category preset (optional)",
+            ["Custom keyword"] + list(CATEGORY_KEYWORD_PRESETS.keys()),
+            key="ml_category",
+            help="Starting keywords for verticals known to be dominated by multi-location groups "
+            "that aren't classic franchises (campus dining concepts, PE-backed healthcare/pet-care "
+            "roll-ups, etc.) - the kind of business worth targeting for a review service one "
+            "contract per group instead of one owner at a time. Still just a starting point - "
+            "narrow or widen the keyword based on what a trial search actually returns.",
+        )
+        if ml_category == "Custom keyword":
+            ml_keyword = st.text_input("Search keyword", placeholder="Immigration attorney", key="ml_keyword")
+        else:
+            ml_keyword = st.selectbox("Keyword", CATEGORY_KEYWORD_PRESETS[ml_category], key="ml_keyword_preset")
+            st.caption(
+                "To map a specific brand's full footprint instead (e.g. \"The Halal Shack\"), switch "
+                "to Custom keyword and search that exact brand name instead of a category term."
+            )
 
         ml_country = st.radio("Country", ["United States", "Canada"], horizontal=True, key="ml_country")
         region_map = CANADA_PROVINCE_CITIES if ml_country == "Canada" else US_STATE_CITIES

@@ -419,6 +419,49 @@ MULTI_LOCATION_OUTPUT_FIELDS = [
     "Total Locations", "Google Profile Link",
 ]
 
+# Starting keywords for find_multi_location_businesses(), grouped by
+# vertical - for categories known to be dominated by multi-location groups
+# that AREN'T classic franchises (campus dining concepts, PE-backed
+# healthcare/pet-care roll-ups, contract-foodservice concessions, etc.),
+# the kind of business worth targeting for a Google-review service one
+# contract per group instead of one owner at a time. These are just
+# reasonable starting points, not exact category matches - narrow or widen
+# them based on what a trial search actually returns.
+#
+# To map a SPECIFIC brand's full footprint instead of discovering new ones
+# (e.g. you already know "The Halal Shack" and want every location), search
+# that exact brand name as the keyword instead of a category term below.
+CATEGORY_KEYWORD_PRESETS = {
+    "Restaurant / campus dining concepts": [
+        "halal restaurant", "poke bowl restaurant", "bubble tea",
+        "mediterranean fast casual", "fried chicken restaurant", "campus food court",
+    ],
+    "Veterinary / pet care": [
+        "animal hospital", "veterinary clinic", "emergency vet clinic",
+    ],
+    "Dental (DSO)": [
+        "dental clinic", "family dentistry", "pediatric dentist",
+    ],
+    "Urgent care / medical (MSO)": [
+        "urgent care clinic", "walk-in clinic", "physical therapy clinic", "dermatology clinic",
+    ],
+    "Optometry": [
+        "optometrist", "eye care center",
+    ],
+    "Med spa / aesthetics": [
+        "med spa", "laser hair removal",
+    ],
+    "Senior living": [
+        "assisted living facility", "memory care facility", "senior living community",
+    ],
+    "Self-storage": [
+        "self storage facility",
+    ],
+    "Home services (HVAC/plumbing/pest control roll-ups)": [
+        "hvac repair service", "plumbing service", "pest control service",
+    ],
+}
+
 # Common legal-entity suffixes and separator-led branch qualifiers
 # (" - Brooklyn", " (Midtown)", " | Downtown") get stripped before grouping
 # by name. This is a heuristic, not exact matching - inconsistently-branded
