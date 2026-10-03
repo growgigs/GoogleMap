@@ -41,12 +41,14 @@ import requests
 import streamlit as st
 
 from gmaps_checker import (
+    CANADA_COLLEGE_TOWNS,
     CANADA_PROVINCE_CITIES,
     CATEGORY_KEYWORD_PRESETS,
     DAYS_THRESHOLD,
     HARD_COST_CAP_PER_1000,
     MULTI_LOCATION_OUTPUT_FIELDS,
     OUTPUT_FIELDS,
+    US_COLLEGE_TOWNS,
     US_RESORT_DESTINATIONS,
     US_STATE_CITIES,
     WORST_REVIEW_MAX_STARS,
@@ -438,6 +440,18 @@ def main():
             )
             if ml_include_resorts:
                 ml_state_cities = list(dict.fromkeys(ml_state_cities + US_RESORT_DESTINATIONS))
+
+        college_towns = US_COLLEGE_TOWNS if ml_country == "United States" else CANADA_COLLEGE_TOWNS
+        ml_include_college_towns = st.checkbox(
+            f"Also search {len(college_towns)} major college towns (Binghamton, Albany, Worcester, "
+            "Burlington, Riverside, etc.) - useful for small restaurant/retail \"concepts\" that grow "
+            "inside university dining programs (e.g. The Halal Shack), which cluster in college towns "
+            "rather than a state's biggest-population metros above.",
+            value=(ml_category == "Restaurant / campus dining concepts"),
+            key="ml_include_college_towns",
+        )
+        if ml_include_college_towns:
+            ml_state_cities = list(dict.fromkeys(ml_state_cities + college_towns))
 
         with st.expander("Advanced: search a custom city list instead of a whole state"):
             ml_locations_text = st.text_area(

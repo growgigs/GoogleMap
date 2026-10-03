@@ -597,6 +597,38 @@ US_RESORT_DESTINATIONS = [
     "Lahaina, HI", "Lihue, HI",
 ]
 
+# Major US college towns, for finding small restaurant/retail "concepts" that
+# grow inside university dining programs (see CATEGORY_KEYWORD_PRESETS's
+# "Restaurant / campus dining concepts" preset). The default US_STATE_CITIES
+# list is built around a state's biggest-population metros - that's the
+# WRONG geography for this category: a brand like The Halal Shack clusters in
+# college towns (Binghamton NY, Albany NY, Worcester MA, Burlington VT,
+# Riverside CA), several of which aren't a state's top-population city at all
+# and so are missed by a metro-only search. This list exists to search where
+# these concepts actually are, not where the general population is.
+US_COLLEGE_TOWNS = [
+    "Ann Arbor, MI", "East Lansing, MI", "Bloomington, IN", "West Lafayette, IN",
+    "Champaign, IL", "Urbana, IL", "Madison, WI", "Athens, OH", "Athens, GA",
+    "Auburn, AL", "Tuscaloosa, AL", "Gainesville, FL", "Tallahassee, FL",
+    "State College, PA", "College Station, TX", "Lubbock, TX", "Denton, TX",
+    "Richardson, TX", "Norman, OK", "Stillwater, OK", "Lawrence, KS",
+    "Manhattan, KS", "Ames, IA", "Iowa City, IA", "Columbia, MO",
+    "Clemson, SC", "Chapel Hill, NC", "Durham, NC", "Raleigh, NC",
+    "Blacksburg, VA", "Charlottesville, VA", "Morgantown, WV",
+    "New Brunswick, NJ", "Princeton, NJ", "Ithaca, NY", "Binghamton, NY",
+    "Albany, NY", "New Haven, CT", "Storrs, CT", "Amherst, MA", "Worcester, MA",
+    "Burlington, VT", "Hanover, NH", "Durham, NH", "Orono, ME",
+    "College Park, MD", "Baltimore, MD", "Charlotte, NC", "Washington, DC",
+    "Tempe, AZ", "Flagstaff, AZ", "Provo, UT", "Logan, UT", "Boulder, CO",
+    "Pullman, WA", "Corvallis, OR", "Davis, CA", "Berkeley, CA",
+    "Santa Barbara, CA", "San Diego, CA", "Riverside, CA",
+]
+
+CANADA_COLLEGE_TOWNS = [
+    "Waterloo, ON", "Kingston, ON", "London, ON", "Guelph, ON",
+    "Halifax, NS", "Fredericton, NB", "Saskatoon, SK",
+]
+
 
 _PROVINCE_ABBREVIATIONS = {
     "AB": "Alberta", "BC": "British Columbia", "MB": "Manitoba", "NB": "New Brunswick",
